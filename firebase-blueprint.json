@@ -1,0 +1,73 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the Tutivex platform",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User full name"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Server timestamp of creation"
+        }
+      },
+      "required": ["email", "createdAt"]
+    },
+    "Enrollment": {
+      "title": "Enrollment",
+      "description": "A course enrollment for a user",
+      "type": "object",
+      "properties": {
+        "courseId": { "type": "string" },
+        "courseName": { "type": "string" },
+        "progress": { "type": "number" },
+        "lastAccessedAt": { "type": "string" },
+        "enrolledAt": { "type": "string" }
+      },
+      "required": ["courseId", "courseName", "progress", "lastAccessedAt", "enrolledAt"]
+    },
+    "Subscription": {
+      "title": "Subscription",
+      "description": "A user subscribed to the newsletter",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "Subscriber email"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Server timestamp of creation"
+        }
+      },
+      "required": ["email", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/User"
+      },
+      "description": "User profiles"
+    },
+    "users/{userId}/enrollments/{enrollmentId}": {
+      "schema": {
+        "$ref": "#/entities/Enrollment"
+      },
+      "description": "User's enrolled courses and progress"
+    },
+    "subscriptions/{subscriptionId}": {
+      "schema": {
+        "$ref": "#/entities/Subscription"
+      },
+      "description": "Newsletter subscriptions"
+    }
+  }
+}

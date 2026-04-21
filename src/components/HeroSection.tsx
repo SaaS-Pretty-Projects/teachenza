@@ -1,8 +1,42 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Globe } from 'lucide-react';
+import { auth, db } from '../lib/firebase';
+import { GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { doc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { useNavigate } from 'react-router-dom';
 
 export default function HeroSection() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [user, setUser] = useState(auth.currentUser);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    return auth.onAuthStateChanged(setUser);
+  }, []);
+
+  const handleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      
+      // Upsert User Profile logic
+      const userRef = doc(db, 'users', result.user.uid);
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) {
+        await setDoc(userRef, {
+          email: result.user.email,
+          createdAt: serverTimestamp()
+        });
+      }
+      navigate('/dashboard');
+    } catch (error) {
+      console.error("Login failed", error);
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
+  };
 
   useEffect(() => {
     const video = videoRef.current;
@@ -94,15 +128,24 @@ export default function HeroSection() {
             <span className="text-white font-semibold text-lg ml-2">Tutivex</span>
             
             <div className="hidden md:flex items-center gap-8 ml-10">
-              <a href="#" className="text-white/80 hover:text-white text-sm font-medium transition-colors">Courses</a>
-              <a href="#" className="text-white/80 hover:text-white text-sm font-medium transition-colors">Methodology</a>
-              <a href="#" className="text-white/80 hover:text-white text-sm font-medium transition-colors">About</a>
+              <a href="#courses" className="text-white/80 hover:text-white text-sm font-medium transition-colors">Courses</a>
+              <a href="#methodology" className="text-white/80 hover:text-white text-sm font-medium transition-colors">Methodology</a>
+              <a href="#about" className="text-white/80 hover:text-white text-sm font-medium transition-colors">About</a>
             </div>
           </div>
           
           <div className="flex items-center gap-4">
-            <button className="text-white text-sm font-medium hover:text-white/80 transition-colors">Sign Up</button>
-            <button className="liquid-glass rounded-full px-6 py-2 text-white text-sm font-medium transition-all hover:bg-white/10">Login</button>
+            {user ? (
+              <>
+                <span className="hidden md:block text-white text-sm opacity-60">Hi, {user.displayName || user.email?.split('@')[0]}</span>
+                <button onClick={handleLogout} className="liquid-glass rounded-full px-6 py-2 text-white text-sm font-medium transition-all hover:bg-white/10">Log Out</button>
+              </>
+            ) : (
+              <>
+                <button onClick={handleLogin} className="text-white text-sm font-medium hover:text-white/80 transition-colors">Sign Up</button>
+                <button onClick={handleLogin} className="liquid-glass rounded-full px-6 py-2 text-white text-sm font-medium transition-all hover:bg-white/10">Login</button>
+              </>
+            )}
           </div>
         </div>
       </nav>

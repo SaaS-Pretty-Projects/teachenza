@@ -1,0 +1,94 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net
+    match /{document=**} { 
+      allow read, write: if false; 
+    }
+    
+    // Core Helpers
+    function isSignedIn() { 
+      return request.auth != null; 
+    }
+    
+    function incoming() { 
+      return request.resource.data; 
+    }
+    
+    function existing() { 
+      return resource.data; 
+    }
+    
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+
+    // Entity Validation Helpers
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'createdAt']) 
+        && data.keys().size() <= 3
+        && data.email is string && data.email.size() <= 256
+        && (data.get('displayName', '') is string && data.get('displayName', '').size() <= 128)
+        && data.createdAt == request.time;
+    }
+
+    function isValidSubscription(data) {
+      return data.keys().hasAll(['email', 'createdAt'])
+        && data.keys().size() == 2
+        && data.email is string && data.email.size() <= 256
+        && data.createdAt == request.time;
+    }
+
+    function isValidEnrollment(data) {
+      return data.keys().hasAll(['courseId', 'courseName', 'progress', 'lastAccessedAt', 'enrolledAt'])
+        && data.keys().size() == 5
+        && data.courseId is string && data.courseId.size() <= 128
+        && data.courseName is string && data.courseName.size() <= 128
+        && data.progress is number && data.progress >= 0 && data.progress <= 100
+        && data.lastAccessedAt == request.time
+        && data.enrolledAt == request.time;
+    }
+
+    // Feature: Users
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow create: if isSignedIn() 
+        && isValidId(userId)
+        && request.auth.uid == userId 
+        && isValidUser(incoming());
+      // Updates allowed only for display name
+      allow update: if isSignedIn() 
+        && isValidId(userId)
+        && request.auth.uid == userId 
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName'])
+        && incoming().email == existing().email
+        && incoming().createdAt == existing().createdAt
+        && incoming().displayName is string && incoming().displayName.size() <= 128;
+      
+      // Sub-Collection: Enrollments
+      match /enrollments/{enrollmentId} {
+        allow read: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+        allow create: if isSignedIn() 
+          && isValidId(userId) && isValidId(enrollmentId)
+          && request.auth.uid == userId 
+          && isValidEnrollment(incoming());
+        allow update: if isSignedIn() 
+          && isValidId(userId) && isValidId(enrollmentId)
+          && request.auth.uid == userId 
+          && incoming().diff(existing()).affectedKeys().hasOnly(['progress', 'lastAccessedAt'])
+          && incoming().progress is number && incoming().progress >= 0 && incoming().progress <= 100
+          && incoming().lastAccessedAt == request.time
+          && incoming().courseId == existing().courseId
+          && incoming().courseName == existing().courseName
+          && incoming().enrolledAt == existing().enrolledAt;
+      }
+    }
+
+    // Feature: Subscriptions (Newsletter)
+    match /subscriptions/{subscriptionId} {
+      // Create allowed for anyone (even unauthenticated) for the newsletter landing page
+      allow create: if isValidId(subscriptionId) && isValidSubscription(incoming());
+    }
+  }
+}

@@ -1,6 +1,8 @@
-import {type FormEvent, useRef, useState} from 'react';
+import { useState, useRef } from 'react';
 import { ArrowRight, Check } from 'lucide-react';
 import { motion, useInView, AnimatePresence } from 'motion/react';
+import { db, handleFirestoreError } from '../lib/firebase';
+import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function CTASection() {
   const [email, setEmail] = useState('');
@@ -8,16 +10,28 @@ export default function CTASection() {
   const ref = useRef<HTMLDivElement>(null);
   const isInView = useInView(ref, { once: true, margin: "-100px" });
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) return;
     
     setStatus('loading');
     
-    // Simulate API call for subscription
-    setTimeout(() => {
+    try {
+      const newSubscriptionRef = doc(collection(db, 'subscriptions'));
+      await setDoc(newSubscriptionRef, {
+        email,
+        createdAt: serverTimestamp()
+      });
       setStatus('success');
-    }, 1000);
+    } catch (error) {
+      console.error(error);
+      try {
+        handleFirestoreError(error, 'create', `subscriptions`);
+      } catch (err) {
+        console.error("Delegated Firestore Error:", err);
+      }
+      setStatus('idle');
+    }
   };
 
   return (
