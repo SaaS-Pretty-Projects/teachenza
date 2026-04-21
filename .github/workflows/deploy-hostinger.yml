@@ -33,6 +33,19 @@ jobs:
       - name: Build production bundle
         run: npm run build
 
+      - name: Prepare Hostinger SPA artifacts
+        run: |
+          cat > dist/.htaccess <<'EOF'
+          <IfModule mod_rewrite.c>
+            RewriteEngine On
+            RewriteCond %{REQUEST_FILENAME} !-f
+            RewriteCond %{REQUEST_FILENAME} !-d
+            RewriteRule ^ index.html [L]
+          </IfModule>
+          EOF
+
+          find dist -type f ! -name '.deploy-manifest' -printf '%P\n' | LC_ALL=C sort > dist/.deploy-manifest
+
       - name: Install lftp
         run: sudo apt-get update && sudo apt-get install -y lftp
 
@@ -66,6 +79,10 @@ jobs:
             port="${HOSTINGER_PORT:-21}"
           fi
           target_dir="${HOSTINGER_SERVER_DIR:-public_html}"
+          remote_prefix=""
+          if [ "$target_dir" != "." ]; then
+            remote_prefix="${target_dir%/}/"
+          fi
           raw_host="${HOSTINGER_HOST}"
           host="$(printf '%s' "$raw_host" | tr -d '[:space:]')"
           host="${host#sftp://}"
@@ -87,6 +104,34 @@ jobs:
           fi
 
           echo "Deploying dist/ via ${protocol} on port ${port} into ${target_dir}"
+
+          remote_manifest_local="$(mktemp)"
+          cleanup_script="$(mktemp)"
+
+          lftp -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" "${protocol}://${host}:${port}" <<EOF
+          set cmd:fail-exit no
+          set net:max-retries 5
+          set net:timeout 30
+          set net:reconnect-interval-base 5
+          set sftp:auto-confirm yes
+          set ssl:verify-certificate no
+          set ftp:ssl-allow no
+          set ftp:passive-mode yes
+          get -O ${remote_manifest_local} ${remote_prefix}.deploy-manifest
+          bye
+          EOF
+
+          if [ -s "$remote_manifest_local" ]; then
+            : > "$cleanup_script"
+            while IFS= read -r remote_file; do
+              if [ -n "$remote_file" ]; then
+                printf 'rm %s%s\n' "$remote_prefix" "$remote_file" >> "$cleanup_script"
+              fi
+            done < "$remote_manifest_local"
+            printf 'rm %s.deploy-manifest\n' "$remote_prefix" >> "$cleanup_script"
+
+            lftp -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" "${protocol}://${host}:${port}" < "$cleanup_script"
+          fi
 
           lftp -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" "${protocol}://${host}:${port}" <<EOF
           set cmd:fail-exit yes

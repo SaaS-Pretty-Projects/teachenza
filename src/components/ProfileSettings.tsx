@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import {type FormEvent, useEffect, useState} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth, db, handleFirestoreError } from '../lib/firebase';
 import { updateProfile } from 'firebase/auth';
@@ -27,7 +27,7 @@ export default function ProfileSettings() {
     return unsubscribe;
   }, [navigate]);
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSave = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user) return;
     setSaving(true);
