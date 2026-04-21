@@ -95,7 +95,7 @@ jobs:
           set sftp:auto-confirm yes
           set ssl:verify-certificate no
           set ftp:ssl-allow yes
-          mkdir -p ${target_dir}
+          $([ "$target_dir" != "." ] && echo "mkdir -p ${target_dir}")
           mirror --reverse --delete --verbose dist/ ${target_dir}
           bye
           EOF
