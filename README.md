@@ -28,6 +28,8 @@ This repo now includes GitHub Actions auto-deploy to Hostinger on every push to 
 In GitHub, open `Settings -> Secrets and variables -> Actions` and add:
 
 - `HOSTINGER_HOST`: the FTP IP or SFTP host from Hostinger
+  Use only the bare hostname or IP, for example `123.123.123.123`.
+  Do not include `sftp://`, `ftp://`, a username prefix, port, or any path.
 - `HOSTINGER_USERNAME`: your Hostinger FTP/SSH username
 - `HOSTINGER_PASSWORD`: your Hostinger FTP/SSH password
 - `HOSTINGER_SERVER_DIR`: optional remote folder, defaults to `public_html`

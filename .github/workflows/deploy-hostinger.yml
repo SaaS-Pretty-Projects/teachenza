@@ -66,10 +66,29 @@ jobs:
             port="${HOSTINGER_PORT:-21}"
           fi
           target_dir="${HOSTINGER_SERVER_DIR:-public_html}"
+          raw_host="${HOSTINGER_HOST}"
+          host="$(printf '%s' "$raw_host" | tr -d '[:space:]')"
+          host="${host#sftp://}"
+          host="${host#ftp://}"
+          host="${host#ftps://}"
+          host="${host#ssh://}"
+          host="${host#scp://}"
+          host="${host#*@}"
+          host="${host%%/*}"
+          host="${host%%:*}"
 
-          echo "Deploying dist/ to ${protocol}://${HOSTINGER_HOST}:${port}/${target_dir}"
+          if [ -z "$host" ]; then
+            echo "::error::HOSTINGER_HOST resolved to an empty hostname. Store only the Hostinger FTP/SFTP hostname or IP in this secret."
+            exit 1
+          fi
 
-          lftp -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" "${protocol}://${HOSTINGER_HOST}:${port}" <<EOF
+          if [ "$host" != "$raw_host" ]; then
+            echo "::notice::Normalized HOSTINGER_HOST from a pasted URL or user@host value. Saving only the bare hostname or IP is recommended."
+          fi
+
+          echo "Deploying dist/ via ${protocol} on port ${port} into ${target_dir}"
+
+          lftp -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" "${protocol}://${host}:${port}" <<EOF
           set cmd:fail-exit yes
           set net:max-retries 2
           set net:timeout 20
