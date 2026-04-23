@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "firebase:deploy:rules": "npx firebase-tools deploy --only firestore:rules",
+    "firebase:login": "npx firebase-tools login"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

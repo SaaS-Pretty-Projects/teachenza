@@ -1,0 +1,9 @@
+{
+  "$schema": "https://raw.githubusercontent.com/firebase/firebase-tools/master/schema/firebase-config.json",
+  "firestore": [
+    {
+      "database": "ai-studio-0e73c385-eb8b-44ad-8d0b-940e22df006d",
+      "rules": "firestore.rules"
+    }
+  ]
+}
