@@ -1,6 +1,6 @@
 import {useEffect, useState} from 'react';
 import {Link, useNavigate, useParams} from 'react-router-dom';
-import {doc, getDoc, serverTimestamp, updateDoc} from 'firebase/firestore';
+import {collection, doc, getDoc, getDocs, limit, query, serverTimestamp, updateDoc, where} from 'firebase/firestore';
 import {
   ArrowLeft,
   BookOpen,
@@ -21,6 +21,7 @@ import {
 } from '../lib/learningData';
 
 interface EnrollmentRecord {
+  id: string;
   courseId: string;
   courseName: string;
   progress: number;
@@ -37,6 +38,8 @@ export default function CourseDetail() {
 
   const [enrollment, setEnrollment] = useState<EnrollmentRecord | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [missingEnrollment, setMissingEnrollment] = useState(false);
   const [activeModuleIndex, setActiveModuleIndex] = useState(0);
   const [updating, setUpdating] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
@@ -54,20 +57,39 @@ export default function CourseDetail() {
 
     async function loadEnrollment() {
       try {
-        const snapshot = await getDoc(doc(db, `users/${user.uid}/enrollments`, course.id));
+        setLoading(true);
+        setLoadError(null);
+        setMissingEnrollment(false);
 
-        if (!snapshot.exists()) {
-          navigate('/dashboard');
+        const enrollmentCollectionPath = `users/${user.uid}/enrollments`;
+        const snapshot = await getDoc(doc(db, enrollmentCollectionPath, course.id));
+        let enrollmentId = snapshot.id;
+        let data = snapshot.exists() ? snapshot.data() : null;
+
+        if (!data) {
+          const fallbackSnapshot = await getDocs(
+            query(collection(db, enrollmentCollectionPath), where('courseId', '==', course.id), limit(1)),
+          );
+          const fallbackDocument = fallbackSnapshot.docs[0];
+
+          if (fallbackDocument) {
+            enrollmentId = fallbackDocument.id;
+            data = fallbackDocument.data();
+          }
+        }
+
+        if (!data) {
+          setMissingEnrollment(true);
           return;
         }
 
-        const data = snapshot.data();
-        const completedModuleIds = data.completedModuleIds ?? [];
+        const completedModuleIds = Array.isArray(data.completedModuleIds) ? data.completedModuleIds : [];
         const currentModuleId = data.currentModuleId || getNextModuleId(course, completedModuleIds);
         const progress = data.progress ?? calculateProgress(course.modules.length, completedModuleIds);
         const nextEnrollment: EnrollmentRecord = {
+          id: enrollmentId,
           courseId: data.courseId,
-          courseName: data.courseName,
+          courseName: data.courseName || course.title,
           progress,
           currentModuleId,
           completedModuleIds,
@@ -77,7 +99,12 @@ export default function CourseDetail() {
         setEnrollment(nextEnrollment);
         setActiveModuleIndex(getCurrentModuleIndex(course, currentModuleId, completedModuleIds));
       } catch (error) {
-        console.error('Failed to load enrollment', error);
+        try {
+          handleFirestoreError(error, 'get', `users/${user.uid}/enrollments/${course.id}`);
+        } catch (delegatedError) {
+          console.error('Failed to load enrollment', delegatedError);
+        }
+        setLoadError('We could not open this course workspace. Please refresh or return to the dashboard.');
       } finally {
         setLoading(false);
       }
@@ -86,8 +113,33 @@ export default function CourseDetail() {
     loadEnrollment();
   }, [course, navigate, user]);
 
-  if (!course || !user || loading || !enrollment) {
+  if (!course || !user || loading) {
     return <div className="min-h-[50vh] flex items-center justify-center text-white/70">Loading course workspace...</div>;
+  }
+
+  if (loadError || missingEnrollment || !enrollment) {
+    return (
+      <div className="min-h-[50vh] flex items-center justify-center">
+        <div className="liquid-glass rounded-[2rem] border border-white/10 max-w-lg w-full p-8 text-center">
+          <p className="text-[11px] uppercase tracking-[0.24em] text-white/40 mb-4">Course workspace</p>
+          <h2 className="text-3xl font-serif mb-4">
+            {missingEnrollment ? `${course.title} is not in your workspace yet` : 'Course could not be opened'}
+          </h2>
+          <p className="text-white/62 leading-relaxed mb-6">
+            {missingEnrollment
+              ? 'Return to the dashboard and start the track again so Tutivex can create the enrollment record.'
+              : loadError}
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate('/dashboard')}
+            className="bg-white text-black rounded-full px-5 py-3 text-sm font-medium hover:bg-gray-200 transition-colors"
+          >
+            Back to dashboard
+          </button>
+        </div>
+      </div>
+    );
   }
 
   const completedModuleIds = enrollment.completedModuleIds ?? [];
@@ -115,7 +167,7 @@ export default function CourseDetail() {
 
     try {
       setUpdating(true);
-      await updateDoc(doc(db, `users/${user.uid}/enrollments`, course.id), {
+      await updateDoc(doc(db, `users/${user.uid}/enrollments`, enrollment.id), {
         currentModuleId: module.id,
         status: nextStatus,
         lastAccessedAt: serverTimestamp(),
@@ -150,7 +202,7 @@ export default function CourseDetail() {
 
     try {
       setUpdating(true);
-      await updateDoc(doc(db, `users/${user.uid}/enrollments`, course.id), {
+      await updateDoc(doc(db, `users/${user.uid}/enrollments`, enrollment.id), {
         progress: nextProgress,
         currentModuleId: nextCurrentModuleId,
         completedModuleIds: nextCompletedModuleIds,
@@ -173,7 +225,7 @@ export default function CourseDetail() {
       }
     } catch (error) {
       try {
-        handleFirestoreError(error, 'update', `users/${user.uid}/enrollments/${course.id}`);
+        handleFirestoreError(error, 'update', `users/${user.uid}/enrollments/${enrollment.id}`);
       } catch (delegatedError) {
         console.error('Failed to complete module', delegatedError);
       }
