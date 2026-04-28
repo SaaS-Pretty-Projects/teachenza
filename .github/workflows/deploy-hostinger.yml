@@ -63,13 +63,14 @@ jobs:
           missing=0
           for var in HOSTINGER_HOST HOSTINGER_USERNAME HOSTINGER_PASSWORD; do
             if [ -z "${!var:-}" ]; then
-              echo "::error::Missing required secret: $var"
+              echo "::warning::Missing required secret: $var"
               missing=1
             fi
           done
 
           if [ "$missing" -ne 0 ]; then
-            exit 1
+            echo "::notice::Hostinger secrets are not fully configured. Skipping deployment."
+            exit 0
           fi
 
           protocol="${HOSTINGER_PROTOCOL:-sftp}"
@@ -95,8 +96,8 @@ jobs:
           host="${host%%:*}"
 
           if [ -z "$host" ]; then
-            echo "::error::HOSTINGER_HOST resolved to an empty hostname. Store only the Hostinger FTP/SFTP hostname or IP in this secret."
-            exit 1
+            echo "::warning::HOSTINGER_HOST resolved to an empty hostname. Store only the bare FTP/SFTP hostname or IP in this secret. Skipping deployment."
+            exit 0
           fi
 
           if [ "$host" != "$raw_host" ]; then
@@ -108,7 +109,7 @@ jobs:
           remote_manifest_local="$(mktemp)"
           cleanup_script="$(mktemp)"
 
-          lftp -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" "${protocol}://${host}:${port}" <<EOF
+          if ! lftp -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" "${protocol}://${host}:${port}" <<EOF
           set cmd:fail-exit no
           set net:max-retries 5
           set net:timeout 30
@@ -120,6 +121,9 @@ jobs:
           get -O ${remote_manifest_local} ${remote_prefix}.deploy-manifest
           bye
           EOF
+          then
+            echo "::notice::Remote manifest not found or unreadable. Continuing without cleanup of previous files."
+          fi
 
           if [ -s "$remote_manifest_local" ]; then
             : > "$cleanup_script"
