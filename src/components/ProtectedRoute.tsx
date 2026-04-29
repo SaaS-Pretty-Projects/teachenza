@@ -32,7 +32,7 @@ export default function ProtectedRoute() {
     const requestedPath = `${location.pathname}${location.search}${location.hash}`;
     localStorage.setItem('teachenza:postLoginPath', requestedPath);
     localStorage.setItem('tutivex:postLoginPath', requestedPath);
-    return <Navigate to="/login" replace state={{from: requestedPath}} />;
+    return <Navigate to="/" replace state={{from: requestedPath}} />;
   }
 
   return <Outlet />;

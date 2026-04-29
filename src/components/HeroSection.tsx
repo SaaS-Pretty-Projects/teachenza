@@ -1,4 +1,5 @@
 import {type FormEvent, useCallback, useEffect, useRef, useState} from 'react';
+import {AnimatePresence, motion} from 'motion/react';
 import {ArrowRight, Globe} from 'lucide-react';
 import {auth, db} from '../lib/firebase';
 import {
@@ -12,7 +13,7 @@ import {
   updateProfile,
 } from 'firebase/auth';
 import {doc, getDoc, setDoc, serverTimestamp} from 'firebase/firestore';
-import {useLocation, useNavigate} from 'react-router-dom';
+import {useNavigate} from 'react-router-dom';
 import {defaultMemberProfile} from '../lib/learningData';
 import {canUseLocalPreview, enableLocalPreview} from '../lib/previewSession';
 
@@ -28,22 +29,12 @@ export default function HeroSection() {
   const [password, setPassword] = useState('');
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailMessage, setEmailMessage] = useState('');
-  const location = useLocation();
   const navigate = useNavigate();
   const canPreviewDashboard = canUseLocalPreview();
 
   useEffect(() => {
     return auth.onAuthStateChanged(setUser);
   }, []);
-
-  useEffect(() => {
-    if (user) return;
-    if (location.pathname !== '/login') return;
-
-    const queryMode = new URLSearchParams(location.search).get('mode');
-    setEmailMode(queryMode === 'signup' ? 'signup' : 'login');
-    setShowEmailAuth(true);
-  }, [location.pathname, location.search, user]);
 
   const upsertUserProfile = useCallback(async (signedInUser: NonNullable<typeof auth.currentUser>) => {
     const userRef = doc(db, 'users', signedInUser.uid);
@@ -325,7 +316,7 @@ export default function HeroSection() {
               <>
                 <button
                   type="button"
-                  onClick={() => navigate('/login?mode=signup')}
+                  onClick={() => { setEmailMode('signup'); setShowEmailAuth(true); }}
                   disabled={loginBusy}
                   className="text-white text-sm font-medium hover:text-white/80 transition-colors disabled:opacity-50"
                 >
@@ -333,7 +324,7 @@ export default function HeroSection() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => navigate('/login')}
+                  onClick={() => { setEmailMode('login'); setShowEmailAuth(true); }}
                   disabled={loginBusy}
                   className="liquid-glass rounded-full px-6 py-2 text-white text-sm font-medium transition-all hover:bg-white/10 disabled:opacity-50"
                 >
@@ -358,7 +349,7 @@ export default function HeroSection() {
         <div className="flex flex-wrap items-center justify-center gap-3">
           <button
             type="button"
-            onClick={() => (user ? navigate('/dashboard') : navigate('/login'))}
+            onClick={() => { if (user) { navigate('/dashboard'); } else { setEmailMode('login'); setShowEmailAuth(true); } }}
             disabled={loginBusy}
             className="bg-white text-black rounded-full px-6 py-3 text-sm font-medium hover:bg-gray-200 transition-colors inline-flex items-center gap-2"
           >
@@ -416,8 +407,16 @@ export default function HeroSection() {
             ) : null}
           </div>
         ) : null}
+        <AnimatePresence>
         {showEmailAuth && !user ? (
-          <div className="auth-panel mt-6 w-full max-w-md rounded-3xl border border-white/15 bg-zinc-950/90 p-5 text-left text-white shadow-[0_24px_80px_#000000AA] backdrop-blur-md">
+          <motion.div
+            key="auth-panel"
+            className="auth-panel mt-6 w-full max-w-md rounded-3xl border border-white/15 bg-zinc-950/90 p-5 text-left text-white shadow-[0_24px_80px_#000000AA] backdrop-blur-md overflow-hidden"
+            initial={{ opacity: 0, y: -16, scaleY: 0.94, transformOrigin: 'top center' }}
+            animate={{ opacity: 1, y: 0, scaleY: 1 }}
+            exit={{ opacity: 0, y: -10, scaleY: 0.96 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+          >
             <div className="mb-4 flex items-center justify-between gap-3">
               <p className="text-sm font-semibold tracking-wide text-white">
                 {emailMode === 'signup' ? 'Create your account' : 'Log in with email'}
@@ -516,8 +515,9 @@ export default function HeroSection() {
                 {emailMode === 'signup' ? 'Log in' : 'Create one'}
               </button>
             </div>
-          </div>
+          </motion.div>
         ) : null}
+        </AnimatePresence>
       </main>
     </section>
   );

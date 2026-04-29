@@ -31,14 +31,6 @@ function LandingPage() {
   );
 }
 
-function LoginPage() {
-  return (
-    <div className="theme-force-dark bg-black text-white">
-      <HeroSection />
-    </div>
-  );
-}
-
 export default function App() {
   return (
     <ThemeProvider>
@@ -46,7 +38,6 @@ export default function App() {
         <div className="min-h-screen bg-black font-sans selection:bg-white/30 selection:text-white">
           <Routes>
             <Route path="/" element={<LandingPage />} />
-            <Route path="/login" element={<LoginPage />} />
             <Route element={<ProtectedRoute />}>
               <Route element={<AppShell />}>
                 <Route path="/dashboard" element={<Dashboard />} />
