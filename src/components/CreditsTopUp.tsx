@@ -1,11 +1,11 @@
 import {useEffect, useMemo, useState} from 'react';
 import {Link, useLocation} from 'react-router-dom';
-import {doc, getDoc} from 'firebase/firestore';
+import {collection, doc, getDoc, getDocs, limit, query, where} from 'firebase/firestore';
 import {httpsCallable} from 'firebase/functions';
-import {ArrowLeft, CheckCircle2, CreditCard, Loader2, RefreshCw, ShieldCheck} from 'lucide-react';
+import {ArrowLeft, CheckCircle2, CreditCard, FileText, Loader2, ReceiptText, RefreshCw, ShieldCheck} from 'lucide-react';
 import {auth, db, functions} from '../lib/firebase';
 import {amountMajorToMinor, formatMinorAmount, type Currency} from '../lib/money';
-import type {StudentBalance} from '../lib/arrearsTypes';
+import type {ArrearsInvoice, PaymentOrder, PaymentPurpose, StudentBalance} from '../lib/arrearsTypes';
 
 const TOP_UP_AMOUNTS = [25, 50, 100, 250];
 
@@ -14,6 +14,22 @@ type CheckoutStatus = 'idle' | 'creating' | 'checking' | 'processing' | 'complet
 interface CreatePaymentSessionResponse {
   invoice: string;
   checkoutUrl: string;
+}
+
+interface CreatePaymentSessionRequest {
+  amountMinor: number;
+  currency: Currency;
+  description: string;
+  purpose: PaymentPurpose;
+  invoiceId?: string;
+  customer: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    countryCode: string;
+    city: string;
+  };
 }
 
 interface RefreshStatusResponse {
@@ -29,6 +45,20 @@ function splitName(displayName: string | null | undefined) {
   };
 }
 
+function toDate(value: unknown): Date | null {
+  if (!value) return null;
+  if (typeof value === 'object' && value !== null && 'toDate' in value) {
+    return (value as {toDate: () => Date}).toDate();
+  }
+  return null;
+}
+
+function formatDate(value: unknown) {
+  const date = toDate(value);
+  if (!date) return 'Not set';
+  return new Intl.DateTimeFormat('en', {month: 'short', day: 'numeric', year: 'numeric'}).format(date);
+}
+
 export default function CreditsTopUp() {
   const location = useLocation();
   const user = auth.currentUser;
@@ -41,6 +71,8 @@ export default function CreditsTopUp() {
   const [currency, setCurrency] = useState<Currency>(initialCurrency);
   const [amountMajor, setAmountMajor] = useState(50);
   const [balance, setBalance] = useState<StudentBalance | null>(null);
+  const [paymentOrders, setPaymentOrders] = useState<PaymentOrder[]>([]);
+  const [openInvoices, setOpenInvoices] = useState<ArrearsInvoice[]>([]);
   const [invoice, setInvoice] = useState(returnedInvoice);
   const [status, setStatus] = useState<CheckoutStatus>(returnedFromCheckout ? 'checking' : 'idle');
   const [message, setMessage] = useState<string | null>(null);
@@ -57,7 +89,7 @@ export default function CreditsTopUp() {
     const refreshStatus = httpsCallable<{invoice: string}, RefreshStatusResponse>(functions, 'refreshSafepayStatus');
 
     setStatus('checking');
-    setMessage('Checking SafePay status and applying credits when the payment is complete.');
+    setMessage('Checking SafePay status and applying the payment when it is complete.');
 
     try {
       const result = await refreshStatus({invoice: invoiceToRefresh});
@@ -65,7 +97,7 @@ export default function CreditsTopUp() {
       if (result.data.status === 'completed' && result.data.creditAppliedAt) {
         sessionStorage.removeItem('tutivex.pendingSafepayInvoice');
         setStatus('completed');
-        setMessage('Payment confirmed. Your credits have been added to your Tutivex balance.');
+        setMessage('Payment confirmed. The backend ledger has applied the settled SafePay payment.');
         return 'completed';
       }
 
@@ -95,15 +127,41 @@ export default function CreditsTopUp() {
       return;
     }
 
-    getDoc(doc(db, 'student_balances', user.uid))
-      .then((snapshot) => {
+    async function loadMoneySnapshot() {
+      try {
+        const [balanceSnapshot, ordersSnapshot, invoicesSnapshot] = await Promise.all([
+          getDoc(doc(db, 'student_balances', user.uid)),
+          getDocs(query(collection(db, 'payment_orders'), where('studentUid', '==', user.uid), limit(25))),
+          getDocs(query(collection(db, 'arrears_invoices'), where('studentUid', '==', user.uid), limit(25))),
+        ]);
+
+        const nextOrders = ordersSnapshot.docs
+          .map((snapshot) => {
+            const data = snapshot.data() as Omit<PaymentOrder, 'invoice'>;
+            return {...data, invoice: snapshot.id} as PaymentOrder;
+          })
+          .sort((a, b) => (toDate(b.createdAt)?.getTime() ?? 0) - (toDate(a.createdAt)?.getTime() ?? 0));
+        const nextInvoices = invoicesSnapshot.docs
+          .map((snapshot) => {
+            const data = snapshot.data() as Omit<ArrearsInvoice, 'id'>;
+            return {...data, id: snapshot.id} as ArrearsInvoice;
+          })
+          .filter((nextInvoice) => nextInvoice.status !== 'paid' && nextInvoice.status !== 'written_off')
+          .sort((a, b) => (toDate(a.dueDate)?.getTime() ?? 0) - (toDate(b.dueDate)?.getTime() ?? 0));
+
+        setPaymentOrders(nextOrders);
+        setOpenInvoices(nextInvoices);
+
+        const snapshot = balanceSnapshot;
         if (snapshot.exists()) {
           setBalance(snapshot.data() as StudentBalance);
         }
-      })
-      .catch((error) => {
-        console.error('Failed to load credit balance', error);
-      });
+      } catch (error) {
+        console.error('Failed to load money snapshot', error);
+      }
+    }
+
+    loadMoneySnapshot();
   }, [user]);
 
   useEffect(() => {
@@ -148,20 +206,16 @@ export default function CreditsTopUp() {
       setStatus('creating');
       setMessage('Creating a signed SafePay checkout session.');
 
-      const createSession = httpsCallable<
-        {
-          amountMinor: number;
-          currency: Currency;
-          description: string;
-          customer: typeof customer;
-        },
-        CreatePaymentSessionResponse
-      >(functions, 'createSafepayPaymentSession');
+      const createSession = httpsCallable<CreatePaymentSessionRequest, CreatePaymentSessionResponse>(
+        functions,
+        'createSafepayPaymentSession',
+      );
 
       const result = await createSession({
         amountMinor: selectedMinorAmount,
         currency,
         description: `${formatMinorAmount(selectedMinorAmount, currency)} Tutivex credit top-up`,
+        purpose: 'credit_topup',
         customer,
       });
 
@@ -171,6 +225,44 @@ export default function CreditsTopUp() {
       console.error('SafePay checkout creation failed', error);
       setStatus('failed');
       setMessage('SafePay checkout could not be created. Check the payment connection and try again.');
+    }
+  };
+
+  const startInvoicePayment = async (arrearsInvoice: ArrearsInvoice) => {
+    if (!user || status === 'creating') {
+      return;
+    }
+
+    if (!customer.email || !customer.phone || !customer.countryCode || !customer.city) {
+      setStatus('failed');
+      setMessage('Add email, phone, country code, and city before opening SafePay checkout.');
+      return;
+    }
+
+    try {
+      setStatus('creating');
+      setMessage(`Creating a signed SafePay checkout session for invoice ${arrearsInvoice.id}.`);
+
+      const createSession = httpsCallable<CreatePaymentSessionRequest, CreatePaymentSessionResponse>(
+        functions,
+        'createSafepayPaymentSession',
+      );
+
+      const result = await createSession({
+        amountMinor: arrearsInvoice.amountMinor,
+        currency: arrearsInvoice.currency,
+        description: `Tutivex invoice payment ${arrearsInvoice.id}`,
+        purpose: 'invoice_payment',
+        invoiceId: arrearsInvoice.id,
+        customer,
+      });
+
+      sessionStorage.setItem('tutivex.pendingSafepayInvoice', result.data.invoice);
+      window.location.assign(result.data.checkoutUrl);
+    } catch (error) {
+      console.error('SafePay invoice checkout creation failed', error);
+      setStatus('failed');
+      setMessage('SafePay invoice checkout could not be created. Check the payment connection and try again.');
     }
   };
 
@@ -295,11 +387,78 @@ export default function CreditsTopUp() {
             {status === 'completed' ? (
               <div className="mt-5 flex items-center gap-2 text-sm text-emerald-300">
                 <CheckCircle2 className="w-4 h-4" />
-                Top-up settled through the backend ledger.
+                Payment settled through the backend ledger.
               </div>
             ) : null}
           </div>
+
+          <div className="liquid-glass rounded-[2rem] p-7 border border-white/8">
+            <div className="flex items-center gap-3 text-white/50 mb-4">
+              <FileText className="w-5 h-5" />
+              <span className="text-xs uppercase tracking-[0.24em]">Open invoices</span>
+            </div>
+            {openInvoices.length === 0 ? (
+              <p className="text-sm text-white/45">No open invoices are attached to this account.</p>
+            ) : (
+              <div className="space-y-3">
+                {openInvoices.map((openInvoice) => (
+                  <div key={openInvoice.id} className="rounded-2xl bg-white/[0.03] border border-white/8 p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium text-white">{formatMinorAmount(openInvoice.amountMinor, openInvoice.currency)}</p>
+                        <p className="text-xs text-white/40 mt-1">Due {formatDate(openInvoice.dueDate)} · {openInvoice.status}</p>
+                        <p className="text-xs text-white/35 mt-1 break-all">{openInvoice.id}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => startInvoicePayment(openInvoice)}
+                        disabled={status === 'creating'}
+                        className="shrink-0 rounded-full bg-white text-black px-4 py-2 text-xs font-medium hover:bg-gray-200 transition-colors disabled:opacity-60"
+                      >
+                        Pay
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
+      </section>
+
+      <section className="liquid-glass rounded-[2rem] p-7 border border-white/8">
+        <div className="flex items-center gap-3 text-white/50 mb-5">
+          <ReceiptText className="w-5 h-5" />
+          <span className="text-xs uppercase tracking-[0.24em]">Recent SafePay orders</span>
+        </div>
+        {paymentOrders.length === 0 ? (
+          <p className="text-sm text-white/45">No payment orders have been created yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="text-left text-white/40">
+                <tr>
+                  <th scope="col" className="py-3 pr-4 font-medium">Invoice</th>
+                  <th scope="col" className="py-3 pr-4 font-medium">Purpose</th>
+                  <th scope="col" className="py-3 pr-4 font-medium">Amount</th>
+                  <th scope="col" className="py-3 pr-4 font-medium">Status</th>
+                  <th scope="col" className="py-3 font-medium">Created</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/8 text-white/70">
+                {paymentOrders.map((order) => (
+                  <tr key={order.invoice}>
+                    <th scope="row" className="py-4 pr-4 text-white/75 font-medium break-all">{order.invoice}</th>
+                    <td className="py-4 pr-4">{order.purpose === 'invoice_payment' ? 'Invoice payment' : 'Credit top-up'}</td>
+                    <td className="py-4 pr-4">{formatMinorAmount(order.amountMinor, order.currency)}</td>
+                    <td className="py-4 pr-4 capitalize">{order.status.replace('_', ' ')}</td>
+                    <td className="py-4">{formatDate(order.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   );

@@ -5,9 +5,12 @@ import {
   ArrowLeft,
   BookOpen,
   CheckCircle2,
+  ClipboardList,
   Clock3,
   Loader2,
+  PenLine,
   PlayCircle,
+  Save,
   Sparkles,
   Target,
 } from 'lucide-react';
@@ -27,7 +30,66 @@ interface EnrollmentRecord {
   progress: number;
   currentModuleId?: string;
   completedModuleIds?: string[];
+  moduleNotes?: Record<string, string>;
   status?: 'not_started' | 'in_progress' | 'completed';
+}
+
+function resourceDetail(label: string) {
+  const normalized = label.toLowerCase();
+
+  if (normalized.includes('worksheet') || normalized.includes('canvas')) {
+    return {
+      kind: 'Worksheet',
+      description: 'Capture the working evidence from this module in one place.',
+      prompts: ['Name the current pattern', 'Write the next concrete action', 'Mark one review signal'],
+    };
+  }
+
+  if (normalized.includes('checklist')) {
+    return {
+      kind: 'Checklist',
+      description: 'Run a short pre-session or post-session pass without relying on memory.',
+      prompts: ['Confirm the setup', 'Remove one friction point', 'Check the session exit condition'],
+    };
+  }
+
+  if (normalized.includes('template')) {
+    return {
+      kind: 'Template',
+      description: 'Reuse the same structure each week so progress is easier to compare.',
+      prompts: ['Duplicate the structure', 'Fill only the active fields', 'Archive the finished version'],
+    };
+  }
+
+  if (normalized.includes('tracker') || normalized.includes('log')) {
+    return {
+      kind: 'Tracker',
+      description: 'Track repeated signals over time instead of judging a single session in isolation.',
+      prompts: ['Record start state', 'Record interruption count', 'Record recovery quality'],
+    };
+  }
+
+  if (normalized.includes('scorecard') || normalized.includes('matrix') || normalized.includes('table')) {
+    return {
+      kind: 'Scoring tool',
+      description: 'Compare choices with a lightweight rubric before committing to the next session.',
+      prompts: ['Score impact', 'Score friction', 'Choose the highest-leverage adjustment'],
+    };
+  }
+
+  if (normalized.includes('prompt')) {
+    return {
+      kind: 'Reflection prompts',
+      description: 'Turn the video into a written decision you can carry into the next block.',
+      prompts: ['What changed?', 'What still leaks attention?', 'What gets tested next?'],
+    };
+  }
+
+  return {
+    kind: 'Guide',
+    description: 'Use this reference to translate the module into your own working routine.',
+    prompts: ['Extract the rule', 'Apply it once', 'Review the result'],
+  };
 }
 
 export default function CourseDetail() {
@@ -42,6 +104,8 @@ export default function CourseDetail() {
   const [missingEnrollment, setMissingEnrollment] = useState(false);
   const [activeModuleIndex, setActiveModuleIndex] = useState(0);
   const [updating, setUpdating] = useState(false);
+  const [noteDraft, setNoteDraft] = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
 
   useEffect(() => {
@@ -86,6 +150,8 @@ export default function CourseDetail() {
         const completedModuleIds = Array.isArray(data.completedModuleIds) ? data.completedModuleIds : [];
         const currentModuleId = data.currentModuleId || getNextModuleId(course, completedModuleIds);
         const progress = data.progress ?? calculateProgress(course.modules.length, completedModuleIds);
+        const moduleNotes = data.moduleNotes && typeof data.moduleNotes === 'object' ? data.moduleNotes : {};
+        const moduleIndex = getCurrentModuleIndex(course, currentModuleId, completedModuleIds);
         const nextEnrollment: EnrollmentRecord = {
           id: enrollmentId,
           courseId: data.courseId,
@@ -93,11 +159,13 @@ export default function CourseDetail() {
           progress,
           currentModuleId,
           completedModuleIds,
+          moduleNotes,
           status: data.status ?? (progress >= 100 ? 'completed' : completedModuleIds.length > 0 ? 'in_progress' : 'not_started'),
         };
 
         setEnrollment(nextEnrollment);
-        setActiveModuleIndex(getCurrentModuleIndex(course, currentModuleId, completedModuleIds));
+        setActiveModuleIndex(moduleIndex);
+        setNoteDraft(moduleNotes[course.modules[moduleIndex]?.id] ?? '');
       } catch (error) {
         try {
           handleFirestoreError(error, 'get', `users/${user.uid}/enrollments/${course.id}`);
@@ -158,6 +226,7 @@ export default function CourseDetail() {
     }
 
     setActiveModuleIndex(moduleIndex);
+    setNoteDraft(enrollment.moduleNotes?.[module.id] ?? '');
 
     if (module.id === enrollment.currentModuleId && enrollment.status !== 'not_started') {
       return;
@@ -221,7 +290,9 @@ export default function CourseDetail() {
       if (nextProgress >= 100 && progress < 100) {
         setShowCelebration(true);
       } else {
-        setActiveModuleIndex(getCurrentModuleIndex(course, nextCurrentModuleId, nextCompletedModuleIds));
+        const nextIndex = getCurrentModuleIndex(course, nextCurrentModuleId, nextCompletedModuleIds);
+        setActiveModuleIndex(nextIndex);
+        setNoteDraft(enrollment.moduleNotes?.[course.modules[nextIndex]?.id] ?? '');
       }
     } catch (error) {
       try {
@@ -231,6 +302,43 @@ export default function CourseDetail() {
       }
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const saveModuleNote = async () => {
+    if (noteSaving || !currentModule) {
+      return;
+    }
+
+    const trimmedNote = noteDraft.trim().slice(0, 1200);
+
+    try {
+      setNoteSaving(true);
+      await updateDoc(doc(db, `users/${user.uid}/enrollments`, enrollment.id), {
+        [`moduleNotes.${currentModule.id}`]: trimmedNote,
+        lastAccessedAt: serverTimestamp(),
+      });
+
+      setEnrollment((current) =>
+        current
+          ? {
+              ...current,
+              moduleNotes: {
+                ...(current.moduleNotes ?? {}),
+                [currentModule.id]: trimmedNote,
+              },
+            }
+          : current,
+      );
+      setNoteDraft(trimmedNote);
+    } catch (error) {
+      try {
+        handleFirestoreError(error, 'update', `users/${user.uid}/enrollments/${enrollment.id}`);
+      } catch (delegatedError) {
+        console.error('Failed to save module note', delegatedError);
+      }
+    } finally {
+      setNoteSaving(false);
     }
   };
 
@@ -355,14 +463,60 @@ export default function CourseDetail() {
                 <BookOpen className="w-4 h-4" />
                 <p className="text-xs uppercase tracking-[0.18em]">Resources to use after the video</p>
               </div>
-              <ul className="space-y-3 text-white/75">
-                {currentModule.resources.map((resource) => (
-                  <li key={resource} className="flex gap-3">
-                    <span className="mt-2 w-1.5 h-1.5 rounded-full bg-white/70 shrink-0" />
-                    <span>{resource}</span>
-                  </li>
-                ))}
-              </ul>
+              <div className="space-y-3">
+                {currentModule.resources.map((resource) => {
+                  const detail = resourceDetail(resource);
+                  return (
+                    <div key={resource} className="rounded-2xl bg-black/15 border border-white/8 p-4">
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div>
+                          <p className="text-white/85 font-medium">{resource}</p>
+                          <p className="text-xs uppercase tracking-[0.16em] text-white/35 mt-1">{detail.kind}</p>
+                        </div>
+                        <ClipboardList className="w-4 h-4 text-white/45 shrink-0" />
+                      </div>
+                      <p className="text-sm text-white/58 leading-relaxed mb-3">{detail.description}</p>
+                      <ul className="space-y-2 text-sm text-white/65">
+                        {detail.prompts.map((prompt) => (
+                          <li key={prompt} className="flex gap-2">
+                            <span className="mt-2 w-1 h-1 rounded-full bg-white/55 shrink-0" />
+                            <span>{prompt}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-[1.5rem] bg-white/[0.03] border border-white/6 p-5">
+            <div className="flex items-center justify-between gap-4 mb-4">
+              <div className="flex items-center gap-2 text-white/60">
+                <PenLine className="w-4 h-4" />
+                <p className="text-xs uppercase tracking-[0.18em]">Module journal</p>
+              </div>
+              <span className="text-xs text-white/35">{noteDraft.trim().length}/1200</span>
+            </div>
+            <textarea
+              value={noteDraft}
+              onChange={(event) => setNoteDraft(event.target.value.slice(0, 1200))}
+              rows={5}
+              className="w-full rounded-2xl bg-black/20 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-white/25 resize-none"
+              placeholder="Capture the cue, decision, or next experiment you want to remember when you return."
+            />
+            <div className="mt-4 flex items-center justify-between gap-4">
+              <p className="text-xs text-white/40">Saved against {currentModule.title}</p>
+              <button
+                type="button"
+                onClick={saveModuleNote}
+                disabled={noteSaving}
+                className="rounded-full bg-white text-black px-4 py-2 text-sm font-medium hover:bg-gray-200 transition-colors disabled:opacity-60 inline-flex items-center gap-2"
+              >
+                {noteSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Save note
+              </button>
             </div>
           </div>
         </div>

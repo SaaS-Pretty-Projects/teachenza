@@ -12,6 +12,9 @@ import CourseDetail from './components/CourseDetail';
 import ProtectedRoute from './components/ProtectedRoute';
 import AppShell from './components/AppShell';
 import CreditsTopUp from './components/CreditsTopUp';
+import AdminAgingReport from './components/AdminAgingReport';
+import TutorEarningsDashboard from './components/TutorEarningsDashboard';
+import RoleGate from './components/RoleGate';
 
 function LandingPage() {
   return (
@@ -41,6 +44,22 @@ export default function App() {
               <Route path="/credits" element={<CreditsTopUp />} />
               <Route path="/checkout/success" element={<CreditsTopUp />} />
               <Route path="/checkout/cancel" element={<CreditsTopUp />} />
+              <Route
+                path="/tutor/earnings"
+                element={
+                  <RoleGate requireTutor>
+                    <TutorEarningsDashboard />
+                  </RoleGate>
+                }
+              />
+              <Route
+                path="/admin/aging"
+                element={
+                  <RoleGate requireAdmin>
+                    <AdminAgingReport />
+                  </RoleGate>
+                }
+              />
             </Route>
           </Route>
         </Routes>

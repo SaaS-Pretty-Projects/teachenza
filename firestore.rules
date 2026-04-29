@@ -65,6 +65,11 @@ service cloud.firestore {
         && data.enrolledAt == request.time;
     }
 
+    function isValidModuleNotes(notes) {
+      return notes is map
+        && notes.keys().size() <= 64;
+    }
+
     // Feature: Users
     match /users/{userId} {
       allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
@@ -106,6 +111,7 @@ service cloud.firestore {
             'lastAccessedAt',
             'currentModuleId',
             'completedModuleIds',
+            'moduleNotes',
             'status'
           ])
           && incoming().progress is number && incoming().progress >= 0 && incoming().progress <= 100
@@ -116,6 +122,7 @@ service cloud.firestore {
             || incoming().status == 'in_progress'
             || incoming().status == 'completed'
           )
+          && isValidModuleNotes(incoming().get('moduleNotes', {}))
           && incoming().lastAccessedAt == request.time
           && incoming().courseId == existing().courseId
           && incoming().courseName == existing().courseName

@@ -22,8 +22,10 @@ import {
   verifyIpnHash,
 } from './payments/safepayServer';
 import type {
+  ArrearsInvoice,
   AuditEntry,
   PaymentOrder,
+  PaymentPurpose,
   StudentBalance,
   TutorEarningEntry,
   TutorEarningsSummary,
@@ -64,6 +66,8 @@ export async function createSafepayPaymentSession(data: {
   amountMinor: number;
   currency: Currency;
   description: string;
+  purpose?: PaymentPurpose;
+  invoiceId?: string;
   customer: {
     firstName: string;
     lastName: string;
@@ -75,13 +79,42 @@ export async function createSafepayPaymentSession(data: {
 }, context: { auth?: { uid: string } }) {
   if (!context.auth?.uid) throw new Error('Unauthenticated');
 
-  const { amountMinor, currency, description, customer } = data;
+  const { customer } = data;
+  let { amountMinor, currency, description } = data;
+  const purpose: PaymentPurpose = data.purpose ?? 'credit_topup';
+  const invoiceId = data.invoiceId?.trim();
 
   if (!Number.isInteger(amountMinor) || amountMinor <= 0) {
     throw new Error('amountMinor must be a positive integer');
   }
   if (currency !== 'EUR' && currency !== 'GBP') {
     throw new Error('Unsupported currency');
+  }
+  if (purpose !== 'credit_topup' && purpose !== 'invoice_payment') {
+    throw new Error('Unsupported payment purpose');
+  }
+
+  if (purpose === 'invoice_payment') {
+    if (!invoiceId) {
+      throw new Error('invoiceId is required for invoice payments');
+    }
+
+    const invoiceSnap = await db.doc(`arrears_invoices/${invoiceId}`).get();
+    if (!invoiceSnap.exists) {
+      throw new Error('Invoice not found');
+    }
+
+    const arrearsInvoice = invoiceSnap.data() as ArrearsInvoice;
+    if (arrearsInvoice.studentUid !== context.auth.uid) {
+      throw new Error('Forbidden');
+    }
+    if (arrearsInvoice.status === 'paid' || arrearsInvoice.status === 'written_off') {
+      throw new Error('Invoice is already closed');
+    }
+
+    amountMinor = arrearsInvoice.amountMinor;
+    currency = arrearsInvoice.currency;
+    description = `Tutivex invoice payment ${invoiceId}`;
   }
 
   const merchantId = requireEnv('SAFEPAY_MERCHANT_ID');
@@ -118,7 +151,8 @@ export async function createSafepayPaymentSession(data: {
     providerTransactionId: result.providerTransactionId,
     amountMinor,
     currency,
-    purpose: 'credit_topup',
+    purpose,
+    ...(purpose === 'invoice_payment' && invoiceId ? {invoiceId} : {}),
     status: 'processing',
     description,
     customer,

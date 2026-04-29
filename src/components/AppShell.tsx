@@ -1,4 +1,6 @@
-import {BookOpen, Globe, LogOut, Settings2, Sparkles} from 'lucide-react';
+import {useEffect, useState} from 'react';
+import {getIdTokenResult} from 'firebase/auth';
+import {BarChart3, BookOpen, Globe, LogOut, Settings2, Sparkles, WalletCards} from 'lucide-react';
 import {NavLink, Outlet, useLocation, useNavigate} from 'react-router-dom';
 import {auth} from '../lib/firebase';
 
@@ -13,6 +15,21 @@ const shellMeta: Record<string, {eyebrow: string; title: string; description: st
     title: 'Shape the system around you',
     description: 'Tune the preferences and cadence that personalize how Tutivex guides your deep work.',
   },
+  '/credits': {
+    eyebrow: 'Credits',
+    title: 'Manage your learning balance',
+    description: 'Top up securely, review payment state, and keep lesson credits ready before the next session.',
+  },
+  '/tutor/earnings': {
+    eyebrow: 'Tutor Finance',
+    title: 'Track lessons and payouts',
+    description: 'Review earned balance, recent lesson ledger entries, and payout readiness.',
+  },
+  '/admin/aging': {
+    eyebrow: 'Finance Ops',
+    title: 'Monitor arrears and aging',
+    description: 'Review outstanding invoices, aging buckets, and finance operations from one workspace.',
+  },
 };
 
 export default function AppShell() {
@@ -26,6 +43,35 @@ export default function AppShell() {
 
   const user = auth.currentUser;
   const displayName = user?.displayName || user?.email?.split('@')[0] || 'Learner';
+  const [roles, setRoles] = useState({admin: false, tutor: false});
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadRoles() {
+      if (!user) {
+        return;
+      }
+
+      try {
+        const token = await getIdTokenResult(user, true);
+        if (!cancelled) {
+          setRoles({
+            admin: token.claims.admin === true,
+            tutor: token.claims.tutor === true || token.claims.admin === true,
+          });
+        }
+      } catch (error) {
+        console.error('Failed to read navigation roles', error);
+      }
+    }
+
+    loadRoles();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -77,6 +123,36 @@ export default function AppShell() {
                   Profile
                 </span>
               </NavLink>
+              {roles.tutor ? (
+                <NavLink
+                  to="/tutor/earnings"
+                  className={({isActive}) =>
+                    `rounded-full px-4 py-2 text-sm transition-colors border ${
+                      isActive ? 'bg-white text-black border-white' : 'text-white/70 border-white/10 hover:text-white hover:border-white/25'
+                    }`
+                  }
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <WalletCards className="w-4 h-4" />
+                    Tutor
+                  </span>
+                </NavLink>
+              ) : null}
+              {roles.admin ? (
+                <NavLink
+                  to="/admin/aging"
+                  className={({isActive}) =>
+                    `rounded-full px-4 py-2 text-sm transition-colors border ${
+                      isActive ? 'bg-white text-black border-white' : 'text-white/70 border-white/10 hover:text-white hover:border-white/25'
+                    }`
+                  }
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4" />
+                    Admin
+                  </span>
+                </NavLink>
+              ) : null}
               <button
                 type="button"
                 onClick={() => auth.signOut()}
