@@ -1,15 +1,18 @@
 import {useEffect, useState} from 'react';
 import {Navigate, Outlet, useLocation} from 'react-router-dom';
 import {auth} from '../lib/firebase';
+import {isLocalPreviewEnabled} from '../lib/previewSession';
 
 export default function ProtectedRoute() {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState(auth.currentUser);
+  const [previewEnabled, setPreviewEnabled] = useState(isLocalPreviewEnabled);
   const location = useLocation();
 
   useEffect(() => {
     return auth.onAuthStateChanged((nextUser) => {
       setUser(nextUser);
+      setPreviewEnabled(isLocalPreviewEnabled());
       setReady(true);
     });
   }, []);
@@ -25,7 +28,7 @@ export default function ProtectedRoute() {
     );
   }
 
-  if (!user) {
+  if (!user && !previewEnabled) {
     return <Navigate to="/" replace state={{from: location.pathname}} />;
   }
 

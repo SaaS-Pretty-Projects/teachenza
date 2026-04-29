@@ -3,6 +3,7 @@ import {getIdTokenResult} from 'firebase/auth';
 import {BarChart3, BookOpen, Globe, LogOut, Plus, Settings2, Sparkles, WalletCards} from 'lucide-react';
 import {NavLink, Outlet, useLocation, useNavigate} from 'react-router-dom';
 import {auth} from '../lib/firebase';
+import {disableLocalPreview, isLocalPreviewEnabled, previewUser} from '../lib/previewSession';
 import ThemeToggle from './ThemeToggle';
 
 export default function AppShell() {
@@ -10,14 +11,15 @@ export default function AppShell() {
   const navigate = useNavigate();
 
   const user = auth.currentUser;
-  const displayName = user?.displayName || user?.email?.split('@')[0] || 'Learner';
+  const previewEnabled = isLocalPreviewEnabled();
+  const displayName = previewEnabled ? previewUser.displayName : user?.displayName || user?.email?.split('@')[0] || 'Learner';
   const [roles, setRoles] = useState({admin: false, tutor: false});
   const isDashboard = location.pathname === '/dashboard';
 
   useEffect(() => {
     let cancelled = false;
     async function loadRoles() {
-      if (!user) return;
+      if (!user || previewEnabled) return;
       try {
         const token = await getIdTokenResult(user, true);
         if (!cancelled) {
@@ -32,7 +34,16 @@ export default function AppShell() {
     }
     loadRoles();
     return () => { cancelled = true; };
-  }, [user]);
+  }, [previewEnabled, user]);
+
+  const handleSignOut = () => {
+    if (previewEnabled) {
+      disableLocalPreview();
+      navigate('/');
+      return;
+    }
+    void auth.signOut();
+  };
 
   return (
     <div className="h-screen flex flex-col bg-black text-white overflow-hidden">
@@ -68,10 +79,10 @@ export default function AppShell() {
               Dashboard
             </NavLink>
             <NavLink
-              to="/profile"
+              to={previewEnabled ? '/dashboard' : '/profile'}
               className={({isActive}) =>
                 `rounded-full px-3 py-1.5 text-xs font-medium transition-colors border whitespace-nowrap inline-flex items-center gap-1.5 ${
-                  isActive ? 'bg-white/12 text-white border-white/20' : 'text-white/62 border-white/10 hover:bg-white/[0.04] hover:text-white hover:border-white/20'
+                  !previewEnabled && isActive ? 'bg-white/12 text-white border-white/20' : 'text-white/62 border-white/10 hover:bg-white/[0.04] hover:text-white hover:border-white/20'
                 }`
               }
             >
@@ -115,7 +126,7 @@ export default function AppShell() {
 
             {/* TOP UP — always visible, prominent */}
             <NavLink
-              to="/credits"
+              to={previewEnabled ? '/dashboard' : '/credits'}
               className="inline-flex items-center gap-1.5 rounded-full border border-white/12 bg-white/[0.06] text-white/78 px-3 py-1.5 text-xs font-semibold hover:bg-white/[0.1] hover:text-white transition-colors whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -128,7 +139,7 @@ export default function AppShell() {
 
             <button
               type="button"
-              onClick={() => auth.signOut()}
+              onClick={handleSignOut}
               className="rounded-full p-1.5 text-white/50 border border-white/10 hover:text-white hover:border-white/25 transition-colors"
               aria-label="Sign out"
             >

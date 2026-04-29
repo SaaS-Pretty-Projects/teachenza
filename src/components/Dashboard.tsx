@@ -42,6 +42,7 @@ import {
   type MemberProfile,
 } from '../lib/learningData';
 import {formatMinorAmount, type Currency} from '../lib/money';
+import {disableLocalPreview, isLocalPreviewEnabled, previewUser} from '../lib/previewSession';
 import type {BalanceByCurrency, StudentBalance} from '../lib/arrearsTypes';
 
 interface EnrollmentRecord {
@@ -60,6 +61,28 @@ interface EnrollmentRecord {
   enrolledAt?: unknown;
 }
 
+function createPreviewEnrollments(): EnrollmentRecord[] {
+  return courseCatalog.slice(0, 2).map((course, index) => {
+    const completedModuleIds = course.modules.slice(0, index + 1).map((module) => module.id);
+
+    return {
+      id: course.id,
+      courseId: course.id,
+      courseName: course.title,
+      progress: calculateProgress(course.modules.length, completedModuleIds),
+      currentModuleId: getNextModuleId(course, completedModuleIds),
+      completedModuleIds,
+      status: index === 0 ? 'in_progress' : 'not_started',
+      difficulty: course.difficulty,
+      durationMinutes: course.durationMinutes,
+      track: course.track,
+      summary: course.summary,
+      lastAccessedAt: new Date(),
+      enrolledAt: new Date(),
+    };
+  });
+}
+
 function toDisplayDate(value: unknown) {
   if (!value) return 'Just now';
   if (typeof value === 'object' && value !== null && 'toDate' in value && typeof (value as {toDate: unknown}).toDate === 'function') {
@@ -70,23 +93,27 @@ function toDisplayDate(value: unknown) {
 }
 
 /* ── Credits widget ─────────────────────────────────── */
-function CreditsWidget({onTopUp}: {onTopUp: () => void}) {
+function CreditsWidget({onTopUp, previewMode = false}: {onTopUp: () => void; previewMode?: boolean}) {
   const user = auth.currentUser;
   const [balance, setBalance] = useState<StudentBalance | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
+    if (previewMode) {
+      setLoaded(true);
+      return;
+    }
     if (!user) return;
     getDoc(doc(db, 'student_balances', user.uid))
       .then((snap) => { if (snap.exists()) setBalance(snap.data() as StudentBalance); })
       .catch(console.error)
       .finally(() => setLoaded(true));
-  }, [user]);
+  }, [previewMode, user]);
 
   const entries = balance ? (Object.entries(balance.byCurrency) as [Currency, BalanceByCurrency][]) : [];
   const primary = entries[0];
-  const creditsMinor = primary?.[1]?.creditsMinor ?? 0;
-  const outstandingMinor = primary?.[1]?.outstandingMinor ?? 0;
+  const creditsMinor = previewMode ? 7500 : primary?.[1]?.creditsMinor ?? 0;
+  const outstandingMinor = previewMode ? 0 : primary?.[1]?.outstandingMinor ?? 0;
   const currency = primary?.[0] ?? 'EUR';
 
   const isLow = loaded && creditsMinor < 3000; // < €30
@@ -324,7 +351,7 @@ function MobileWorkspaceDock({
     <div className="lg:hidden border-b border-white/6 px-3 pb-3">
       <div className="grid grid-cols-2 gap-2">
         <Link
-          to="/profile"
+          to={isLocalPreviewEnabled() ? '/dashboard' : '/profile'}
           className="rounded-2xl border border-white/8 bg-white/[0.025] p-3 hover:bg-white/[0.05] transition-colors"
         >
           <div className="flex items-center gap-2 mb-2">
@@ -353,8 +380,8 @@ function MobileWorkspaceDock({
       <div className="mt-2 grid grid-cols-3 gap-2">
         {[
           {to: '/dashboard', icon: Target, label: 'Catalog'},
-          {to: '/profile', icon: Settings2, label: 'Profile'},
-          {to: '/credits', icon: Plus, label: 'Top up'},
+          {to: isLocalPreviewEnabled() ? '/dashboard' : '/profile', icon: Settings2, label: 'Profile'},
+          {to: isLocalPreviewEnabled() ? '/dashboard' : '/credits', icon: Plus, label: 'Top up'},
         ].map(({to, icon: Icon, label}) => (
           <Link
             key={to + label}
@@ -375,6 +402,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const user = auth.currentUser;
+  const previewEnabled = isLocalPreviewEnabled();
   const [profile, setProfile] = useState<MemberProfile>(defaultMemberProfile);
   const [enrollments, setEnrollments] = useState<EnrollmentRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -383,6 +411,17 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<'active' | 'available' | 'done'>('active');
 
   useEffect(() => {
+    if (previewEnabled) {
+      setProfile({
+        ...defaultMemberProfile,
+        displayName: previewUser.displayName,
+        focusGoal: 'Preview the enriched Tutivex workspace inside Codex without Google OAuth.',
+      });
+      setEnrollments(createPreviewEnrollments());
+      setLoading(false);
+      return;
+    }
+
     if (!user) { navigate('/'); return; }
     async function loadWorkspace() {
       try {
@@ -417,10 +456,10 @@ export default function Dashboard() {
       finally { setLoading(false); }
     }
     loadWorkspace();
-  }, [navigate, user]);
+  }, [navigate, previewEnabled, user]);
 
   const handleEnroll = async (courseId: string) => {
-    if (!user) return;
+    if (!user && !previewEnabled) return;
     const course = getCourseById(courseId);
     if (!course) return;
     setEnrollingId(courseId);
@@ -433,7 +472,13 @@ export default function Dashboard() {
       lastAccessedAt: new Date(), enrolledAt: new Date(),
     };
     setEnrollments((cur) => [...cur, optimistic]);
+    if (previewEnabled) {
+      setEnrollingId(null);
+      return;
+    }
+
     try {
+      if (!user) return;
       await setDoc(doc(db, `users/${user.uid}/enrollments`, course.id), {
         courseId: course.id, courseName: course.title, progress: 0,
         currentModuleId: course.modules[0]?.id ?? '', completedModuleIds: [],
@@ -448,7 +493,16 @@ export default function Dashboard() {
     } finally { setEnrollingId(null); }
   };
 
-  if (!user || loading) {
+  const handleWorkspaceSignOut = () => {
+    if (previewEnabled) {
+      disableLocalPreview();
+      navigate('/');
+      return;
+    }
+    void auth.signOut();
+  };
+
+  if ((!user && !previewEnabled) || loading) {
     return (
       <div className="h-full flex items-center justify-center text-white/50 text-sm">
         <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading workspace...
@@ -528,8 +582,8 @@ export default function Dashboard() {
           <div className="space-y-1">
             {[
               {to: '/dashboard', icon: Activity,  label: 'Dashboard'},
-              {to: '/profile',   icon: Settings2, label: 'Profile'},
-              {to: '/credits',   icon: CreditCard, label: 'Credits'},
+              {to: previewEnabled ? '/dashboard' : '/profile',   icon: Settings2, label: 'Profile'},
+              {to: previewEnabled ? '/dashboard' : '/credits',   icon: CreditCard, label: 'Credits'},
             ].map(({to, icon: Icon, label}) => (
               <Link
                 key={to}
@@ -562,7 +616,7 @@ export default function Dashboard() {
               <p className="text-xs text-white/70">{profile.weeklyCommitment}</p>
             </div>
           </div>
-          <Link to="/profile" className="mt-4 flex items-center gap-1.5 text-xs text-white/40 hover:text-white/70 transition-colors">
+          <Link to={previewEnabled ? '/dashboard' : '/profile'} className="mt-4 flex items-center gap-1.5 text-xs text-white/40 hover:text-white/70 transition-colors">
             <Settings2 className="w-3 h-3" /> Edit profile
           </Link>
         </div>
@@ -571,7 +625,7 @@ export default function Dashboard() {
         <div className="p-3 border-t border-white/6">
           <button
             type="button"
-            onClick={() => auth.signOut()}
+            onClick={handleWorkspaceSignOut}
             className="flex items-center gap-2 text-xs text-white/35 hover:text-white/60 transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" /> Sign out
@@ -620,7 +674,7 @@ export default function Dashboard() {
                 </button>
               )}
               <Link
-                to="/profile"
+                to={previewEnabled ? '/dashboard' : '/profile'}
                 className="rounded-full px-3.5 py-2 text-xs border border-white/15 text-white/65 hover:text-white hover:border-white/30 transition-colors"
               >
                 Refine profile
@@ -638,7 +692,7 @@ export default function Dashboard() {
         <MobileWorkspaceDock
           profile={profile}
           firstName={firstName}
-          onTopUp={() => navigate('/credits')}
+          onTopUp={() => navigate(previewEnabled ? '/dashboard' : '/credits')}
         />
 
         <div className="shrink-0 px-4 py-3 border-b border-white/6">
@@ -712,7 +766,7 @@ export default function Dashboard() {
       <aside className="hidden lg:flex flex-col border-l border-white/8 overflow-y-auto p-3 gap-3">
 
         {/* Credits widget */}
-        <CreditsWidget onTopUp={() => navigate('/credits')} />
+        <CreditsWidget onTopUp={() => navigate(previewEnabled ? '/dashboard' : '/credits')} previewMode={previewEnabled} />
 
         {/* Next module */}
         {nextFocusRow ? (
@@ -750,8 +804,8 @@ export default function Dashboard() {
           <p className="text-[10px] uppercase tracking-[0.22em] text-white/35 mb-3">Quick actions</p>
           <div className="space-y-1">
             {[
-              {to: '/credits', icon: CreditCard, label: 'Manage credits', accent: 'text-amber-400'},
-              {to: '/profile', icon: Settings2,  label: 'Edit profile',   accent: 'text-white/55'},
+              {to: previewEnabled ? '/dashboard' : '/credits', icon: CreditCard, label: 'Manage credits', accent: 'text-amber-400'},
+              {to: previewEnabled ? '/dashboard' : '/profile', icon: Settings2,  label: 'Edit profile',   accent: 'text-white/55'},
               {to: '/dashboard', icon: Target,   label: 'Browse catalog', accent: 'text-white/55'},
             ].map(({to, icon: Icon, label, accent}) => (
               <Link
@@ -814,7 +868,7 @@ export default function Dashboard() {
           </p>
           <button
             type="button"
-            onClick={() => navigate('/credits')}
+            onClick={() => navigate(previewEnabled ? '/dashboard' : '/credits')}
             className="w-full rounded-xl border border-indigo-400/25 bg-indigo-400/10 py-2 text-xs text-indigo-300 font-medium hover:bg-indigo-400/20 transition-colors flex items-center justify-center gap-2"
           >
             <Plus className="w-3.5 h-3.5" /> Add session credits

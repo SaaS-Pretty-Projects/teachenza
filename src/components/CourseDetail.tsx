@@ -24,6 +24,7 @@ import {
   getNextModuleId,
   type StudyStudioState,
 } from '../lib/learningData';
+import {isLocalPreviewEnabled} from '../lib/previewSession';
 import CourseStudio from './CourseStudio';
 
 interface EnrollmentRecord {
@@ -126,6 +127,7 @@ export default function CourseDetail() {
   const {courseId} = useParams();
   const navigate = useNavigate();
   const user = auth.currentUser;
+  const previewEnabled = isLocalPreviewEnabled();
   const course = getCourseById(courseId);
 
   const [enrollment, setEnrollment] = useState<EnrollmentRecord | null>(null);
@@ -140,6 +142,36 @@ export default function CourseDetail() {
   const [showCelebration, setShowCelebration] = useState(false);
 
   useEffect(() => {
+    if (previewEnabled) {
+      if (!course) {
+        navigate('/dashboard');
+        return;
+      }
+
+      const completedModuleIds = course.modules[0] ? [course.modules[0].id] : [];
+      const currentModuleId = getNextModuleId(course, completedModuleIds);
+      const progress = calculateProgress(course.modules.length, completedModuleIds);
+      const moduleIndex = getCurrentModuleIndex(course, currentModuleId, completedModuleIds);
+      const nextEnrollment: EnrollmentRecord = {
+        id: course.id,
+        courseId: course.id,
+        courseName: course.title,
+        progress,
+        currentModuleId,
+        completedModuleIds,
+        moduleNotes: {},
+        studyStudio: defaultStudyStudioState,
+        status: 'in_progress',
+      };
+
+      setEnrollment(nextEnrollment);
+      setStudyStudio(defaultStudyStudioState);
+      setActiveModuleIndex(moduleIndex);
+      setNoteDraft('');
+      setLoading(false);
+      return;
+    }
+
     if (!user) {
       navigate('/');
       return;
@@ -213,9 +245,9 @@ export default function CourseDetail() {
     }
 
     loadEnrollment();
-  }, [course, navigate, user]);
+  }, [course, navigate, previewEnabled, user]);
 
-  if (!course || !user || loading) {
+  if (!course || (!user && !previewEnabled) || loading) {
     return <div className="min-h-[50vh] flex items-center justify-center text-white/70">Loading course workspace...</div>;
   }
 
@@ -254,6 +286,10 @@ export default function CourseDetail() {
     setStudyStudio(nextStudio);
     setEnrollment((current) => (current ? {...current, studyStudio: nextStudio} : current));
 
+    if (previewEnabled || !user) {
+      return;
+    }
+
     updateDoc(doc(db, `users/${user.uid}/enrollments`, enrollment.id), {
       studyStudio: nextStudio,
       lastAccessedAt: serverTimestamp(),
@@ -286,6 +322,19 @@ export default function CourseDetail() {
 
     try {
       setUpdating(true);
+      if (previewEnabled || !user) {
+        setEnrollment((current) =>
+          current
+            ? {
+                ...current,
+                currentModuleId: module.id,
+                status: nextStatus,
+              }
+            : current,
+        );
+        return;
+      }
+
       await updateDoc(doc(db, `users/${user.uid}/enrollments`, enrollment.id), {
         currentModuleId: module.id,
         status: nextStatus,
@@ -321,6 +370,25 @@ export default function CourseDetail() {
 
     try {
       setUpdating(true);
+      if (previewEnabled || !user) {
+        setEnrollment({
+          ...enrollment,
+          progress: nextProgress,
+          currentModuleId: nextCurrentModuleId,
+          completedModuleIds: nextCompletedModuleIds,
+          status: nextStatus,
+        });
+
+        if (nextProgress >= 100 && progress < 100) {
+          setShowCelebration(true);
+        } else {
+          const nextIndex = getCurrentModuleIndex(course, nextCurrentModuleId, nextCompletedModuleIds);
+          setActiveModuleIndex(nextIndex);
+          setNoteDraft(enrollment.moduleNotes?.[course.modules[nextIndex]?.id] ?? '');
+        }
+        return;
+      }
+
       await updateDoc(doc(db, `users/${user.uid}/enrollments`, enrollment.id), {
         progress: nextProgress,
         currentModuleId: nextCurrentModuleId,
@@ -364,6 +432,22 @@ export default function CourseDetail() {
 
     try {
       setNoteSaving(true);
+      if (previewEnabled || !user) {
+        setEnrollment((current) =>
+          current
+            ? {
+                ...current,
+                moduleNotes: {
+                  ...(current.moduleNotes ?? {}),
+                  [currentModule.id]: trimmedNote,
+                },
+              }
+            : current,
+        );
+        setNoteDraft(trimmedNote);
+        return;
+      }
+
       await updateDoc(doc(db, `users/${user.uid}/enrollments`, enrollment.id), {
         [`moduleNotes.${currentModule.id}`]: trimmedNote,
         lastAccessedAt: serverTimestamp(),

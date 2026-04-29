@@ -5,6 +5,7 @@ import {getRedirectResult, GoogleAuthProvider, signInWithPopup, signInWithRedire
 import {doc, getDoc, setDoc, serverTimestamp} from 'firebase/firestore';
 import {useNavigate} from 'react-router-dom';
 import {defaultMemberProfile} from '../lib/learningData';
+import {canUseLocalPreview, enableLocalPreview} from '../lib/previewSession';
 
 export default function HeroSection() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -12,6 +13,7 @@ export default function HeroSection() {
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginMessage, setLoginMessage] = useState('');
   const navigate = useNavigate();
+  const canPreviewDashboard = canUseLocalPreview();
 
   useEffect(() => {
     return auth.onAuthStateChanged(setUser);
@@ -72,10 +74,33 @@ export default function HeroSection() {
     return () => { cancelled = true; };
   }, []);
 
-  const startRedirectLogin = async () => {
+  const startRedirectLogin = () => {
     localStorage.setItem('tutivex:postLoginPath', '/dashboard');
     setLoginMessage('Opening Google sign-in in this browser...');
-    await signInWithRedirect(auth, provider());
+    window.setTimeout(() => {
+      setLoginBusy(false);
+      setLoginMessage(
+        canPreviewDashboard
+          ? 'Google sign-in is blocked in this embedded browser. Use local preview to inspect the dashboard here.'
+          : 'Google sign-in did not open in this browser. Try again in a full browser window.',
+      );
+    }, 2500);
+    void signInWithRedirect(auth, provider()).catch((error) => {
+      console.error('Redirect login failed to start', error);
+      setLoginBusy(false);
+      setLoginMessage(
+        canPreviewDashboard
+          ? 'Google sign-in is blocked in this embedded browser. Use local preview to inspect the dashboard here.'
+          : 'Google sign-in could not open in this browser.',
+      );
+    });
+  };
+
+  const handlePreviewDashboard = () => {
+    if (!enableLocalPreview()) return;
+    setLoginBusy(false);
+    setLoginMessage('');
+    navigate('/dashboard');
   };
 
   const handleLogin = async () => {
@@ -98,7 +123,7 @@ export default function HeroSection() {
         code === 'auth/cancelled-popup-request' ||
         code === 'auth/operation-not-supported-in-this-environment'
       ) {
-        await startRedirectLogin();
+        startRedirectLogin();
         return;
       }
       setLoginMessage('Google sign-in failed. Try the redirect sign-in option.');
@@ -264,18 +289,38 @@ export default function HeroSection() {
           >
             Explore Curriculum
           </a>
+          {canPreviewDashboard && !user ? (
+            <button
+              type="button"
+              onClick={handlePreviewDashboard}
+              className="liquid-glass rounded-full px-6 py-3 text-sm font-medium text-white hover:bg-white/10 transition-colors"
+            >
+              Codex preview
+            </button>
+          ) : null}
         </div>
         {loginMessage ? (
           <div className="mt-5 flex flex-col items-center gap-3">
             <p className="max-w-md text-sm text-white/60">{loginMessage}</p>
             {!user ? (
-              <button
-                type="button"
-                onClick={startRedirectLogin}
-                className="liquid-glass rounded-full px-5 py-2 text-xs font-semibold text-white hover:bg-white/10 transition-colors"
-              >
-                Continue with redirect sign-in
-              </button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={startRedirectLogin}
+                  className="liquid-glass rounded-full px-5 py-2 text-xs font-semibold text-white hover:bg-white/10 transition-colors"
+                >
+                  Try redirect sign-in
+                </button>
+                {canPreviewDashboard ? (
+                  <button
+                    type="button"
+                    onClick={handlePreviewDashboard}
+                    className="rounded-full bg-white/90 px-5 py-2 text-xs font-semibold text-black hover:bg-white transition-colors"
+                  >
+                    Open local preview dashboard
+                  </button>
+                ) : null}
+              </div>
             ) : null}
           </div>
         ) : null}
