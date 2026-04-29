@@ -123,11 +123,11 @@ jobs:
           remote_manifest_local="$(mktemp)"
           cleanup_script="$(mktemp)"
 
-          if ! lftp -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" "${protocol}://${host}:${port}" <<EOF
+          if ! timeout 45s lftp -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" "${protocol}://${host}:${port}" <<EOF
           set cmd:fail-exit no
-          set net:max-retries 5
-          set net:timeout 30
-          set net:reconnect-interval-base 5
+          set net:max-retries 1
+          set net:timeout 12
+          set net:reconnect-interval-base 2
           set sftp:auto-confirm yes
           set ssl:verify-certificate no
           set ftp:ssl-allow no
@@ -157,11 +157,11 @@ jobs:
             cd_commands="mkdir -p ${target_dir}; cd ${target_dir};"
           fi
 
-          lftp -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" "${protocol}://${host}:${port}" -e "
+          timeout 90s lftp -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" "${protocol}://${host}:${port}" -e "
             set cmd:fail-exit yes;
-            set net:max-retries 5;
-            set net:timeout 30;
-            set net:reconnect-interval-base 5;
+            set net:max-retries 1;
+            set net:timeout 12;
+            set net:reconnect-interval-base 2;
             set sftp:auto-confirm yes;
             set ssl:verify-certificate no;
             set ftp:ssl-allow no;
