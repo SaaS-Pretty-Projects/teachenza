@@ -29,7 +29,10 @@ export default function ProtectedRoute() {
   }
 
   if (!user && !previewEnabled) {
-    return <Navigate to="/" replace state={{from: location.pathname}} />;
+    const requestedPath = `${location.pathname}${location.search}${location.hash}`;
+    localStorage.setItem('teachenza:postLoginPath', requestedPath);
+    localStorage.setItem('tutivex:postLoginPath', requestedPath);
+    return <Navigate to="/login" replace state={{from: requestedPath}} />;
   }
 
   return <Outlet />;

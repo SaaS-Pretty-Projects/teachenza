@@ -1,9 +1,18 @@
-import {useCallback, useEffect, useRef, useState} from 'react';
+import {type FormEvent, useCallback, useEffect, useRef, useState} from 'react';
 import {ArrowRight, Globe} from 'lucide-react';
 import {auth, db} from '../lib/firebase';
-import {getRedirectResult, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut} from 'firebase/auth';
+import {
+  createUserWithEmailAndPassword,
+  getRedirectResult,
+  GoogleAuthProvider,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signInWithRedirect,
+  signOut,
+  updateProfile,
+} from 'firebase/auth';
 import {doc, getDoc, setDoc, serverTimestamp} from 'firebase/firestore';
-import {useNavigate} from 'react-router-dom';
+import {useLocation, useNavigate} from 'react-router-dom';
 import {defaultMemberProfile} from '../lib/learningData';
 import {canUseLocalPreview, enableLocalPreview} from '../lib/previewSession';
 
@@ -12,12 +21,29 @@ export default function HeroSection() {
   const [user, setUser] = useState(auth.currentUser);
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginMessage, setLoginMessage] = useState('');
+  const [showEmailAuth, setShowEmailAuth] = useState(false);
+  const [emailMode, setEmailMode] = useState<'login' | 'signup'>('login');
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailMessage, setEmailMessage] = useState('');
+  const location = useLocation();
   const navigate = useNavigate();
   const canPreviewDashboard = canUseLocalPreview();
 
   useEffect(() => {
     return auth.onAuthStateChanged(setUser);
   }, []);
+
+  useEffect(() => {
+    if (user) return;
+    if (location.pathname !== '/login') return;
+
+    const queryMode = new URLSearchParams(location.search).get('mode');
+    setEmailMode(queryMode === 'signup' ? 'signup' : 'login');
+    setShowEmailAuth(true);
+  }, [location.pathname, location.search, user]);
 
   const upsertUserProfile = useCallback(async (signedInUser: NonNullable<typeof auth.currentUser>) => {
     const userRef = doc(db, 'users', signedInUser.uid);
@@ -138,6 +164,61 @@ export default function HeroSection() {
     await signOut(auth);
   };
 
+  const resetEmailFeedback = () => {
+    setEmailMessage('');
+    setLoginMessage('');
+  };
+
+  const handleEmailAuth = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!email.trim() || !password.trim()) {
+      setEmailMessage('Email and password are required.');
+      return;
+    }
+    if (emailMode === 'signup' && fullName.trim().length < 2) {
+      setEmailMessage('Please add your name to complete sign up.');
+      return;
+    }
+
+    setEmailBusy(true);
+    resetEmailFeedback();
+
+    try {
+      if (emailMode === 'signup') {
+        const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        await updateProfile(credential.user, {displayName: fullName.trim()});
+        await upsertUserProfile(credential.user);
+      } else {
+        const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+        await upsertUserProfile(credential.user);
+      }
+
+      setShowEmailAuth(false);
+      setPassword('');
+      resumeAfterLogin();
+    } catch (error) {
+      console.error('Email/password auth failed', error);
+      const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+
+      if (code === 'auth/email-already-in-use') {
+        setEmailMessage('This email is already in use. Try logging in instead.');
+        setEmailMode('login');
+      } else if (code === 'auth/invalid-email') {
+        setEmailMessage('Please enter a valid email address.');
+      } else if (code === 'auth/weak-password') {
+        setEmailMessage('Password must be at least 6 characters.');
+      } else if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
+        setEmailMessage('Invalid email or password.');
+      } else if (code === 'auth/too-many-requests') {
+        setEmailMessage('Too many attempts. Please wait and try again.');
+      } else {
+        setEmailMessage('Could not complete email/password sign-in right now.');
+      }
+    } finally {
+      setEmailBusy(false);
+    }
+  };
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -244,7 +325,7 @@ export default function HeroSection() {
               <>
                 <button
                   type="button"
-                  onClick={handleLogin}
+                  onClick={() => navigate('/login?mode=signup')}
                   disabled={loginBusy}
                   className="text-white text-sm font-medium hover:text-white/80 transition-colors disabled:opacity-50"
                 >
@@ -252,11 +333,11 @@ export default function HeroSection() {
                 </button>
                 <button
                   type="button"
-                  onClick={handleLogin}
+                  onClick={() => navigate('/login')}
                   disabled={loginBusy}
                   className="liquid-glass rounded-full px-6 py-2 text-white text-sm font-medium transition-all hover:bg-white/10 disabled:opacity-50"
                 >
-                  {loginBusy ? 'Opening...' : 'Login'}
+                  Login
                 </button>
               </>
             )}
@@ -277,13 +358,23 @@ export default function HeroSection() {
         <div className="flex flex-wrap items-center justify-center gap-3">
           <button
             type="button"
-            onClick={() => (user ? navigate('/dashboard') : handleLogin())}
+            onClick={() => (user ? navigate('/dashboard') : navigate('/login'))}
             disabled={loginBusy}
             className="bg-white text-black rounded-full px-6 py-3 text-sm font-medium hover:bg-gray-200 transition-colors inline-flex items-center gap-2"
           >
-            {user ? 'Open Dashboard' : loginBusy ? 'Opening sign-in...' : 'Start Learning'}
+            {user ? 'Open Dashboard' : 'Start Learning'}
             <ArrowRight className="w-4 h-4" />
           </button>
+          {!user ? (
+            <button
+              type="button"
+              onClick={handleLogin}
+              disabled={loginBusy}
+              className="liquid-glass rounded-full px-6 py-3 text-sm font-medium text-white hover:bg-white/10 transition-colors disabled:opacity-50"
+            >
+              {loginBusy ? 'Opening Google...' : 'Continue with Google'}
+            </button>
+          ) : null}
           <a
             href="#courses"
             className="liquid-glass rounded-full px-6 py-3 text-sm font-medium text-white hover:bg-white/10 transition-colors"
@@ -323,6 +414,108 @@ export default function HeroSection() {
                 ) : null}
               </div>
             ) : null}
+          </div>
+        ) : null}
+        {showEmailAuth && !user ? (
+          <div className="mt-6 w-full max-w-md rounded-3xl border border-white/15 bg-black/65 p-5 text-left backdrop-blur-md">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold tracking-wide text-white">
+                {emailMode === 'signup' ? 'Create your account' : 'Log in with email'}
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowEmailAuth(false)}
+                className="text-xs text-white/60 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+            <form onSubmit={handleEmailAuth} className="space-y-3">
+              {emailMode === 'signup' ? (
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-white/50">Name</span>
+                  <input
+                    type="text"
+                    value={fullName}
+                    onChange={(event) => {
+                      setFullName(event.target.value);
+                      resetEmailFeedback();
+                    }}
+                    className="w-full rounded-xl border border-white/15 bg-black/45 px-3 py-2 text-sm text-white outline-none transition focus:border-white/40"
+                    placeholder="Your full name"
+                    autoComplete="name"
+                  />
+                </label>
+              ) : null}
+              <label className="block">
+                <span className="mb-1 block text-xs uppercase tracking-[0.2em] text-white/50">Email</span>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => {
+                    setEmail(event.target.value);
+                    resetEmailFeedback();
+                  }}
+                  className="w-full rounded-xl border border-white/15 bg-black/45 px-3 py-2 text-sm text-white outline-none transition focus:border-white/40"
+                  placeholder="you@example.com"
+                  autoComplete="username"
+                  required
+                />
+              </label>
+              <div className="block">
+                <label htmlFor={emailMode === 'signup' ? 'signup-password' : 'login-password'} className="mb-1 block text-xs uppercase tracking-[0.2em] text-white/50">Password</label>
+                {emailMode === 'signup' ? (
+                  <input
+                    id="signup-password"
+                    type="password"
+                    value={password}
+                    onChange={(event) => {
+                      setPassword(event.target.value);
+                      resetEmailFeedback();
+                    }}
+                    className="w-full rounded-xl border border-white/15 bg-black/45 px-3 py-2 text-sm text-white outline-none transition focus:border-white/40"
+                    placeholder="At least 6 characters"
+                    autoComplete="new-password"
+                    required
+                  />
+                ) : (
+                  <input
+                    id="login-password"
+                    type="password"
+                    value={password}
+                    onChange={(event) => {
+                      setPassword(event.target.value);
+                      resetEmailFeedback();
+                    }}
+                    className="w-full rounded-xl border border-white/15 bg-black/45 px-3 py-2 text-sm text-white outline-none transition focus:border-white/40"
+                    placeholder="At least 6 characters"
+                    autoComplete="current-password"
+                    required
+                  />
+                )}
+              </div>
+              {emailMessage ? <p className="text-xs text-amber-200">{emailMessage}</p> : null}
+              <button
+                type="submit"
+                disabled={emailBusy}
+                className="w-full rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-gray-200 disabled:opacity-60"
+              >
+                {emailBusy ? 'Please wait...' : emailMode === 'signup' ? 'Create account' : 'Log in'}
+              </button>
+            </form>
+            <div className="mt-3 text-center text-xs text-white/60">
+              {emailMode === 'signup' ? 'Already have an account?' : 'Need an account?'}{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setEmailMode(emailMode === 'signup' ? 'login' : 'signup');
+                  resetEmailFeedback();
+                }}
+                className="font-semibold text-white/80 hover:text-white"
+              >
+                {emailMode === 'signup' ? 'Log in' : 'Create one'}
+              </button>
+            </div>
           </div>
         ) : null}
       </main>
