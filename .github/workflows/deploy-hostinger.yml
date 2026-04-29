@@ -16,6 +16,8 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      HOSTINGER_DOMAIN: teachenza.com
 
     steps:
       - name: Check out repository
@@ -79,7 +81,17 @@ jobs:
           else
             port="${HOSTINGER_PORT:-21}"
           fi
-          target_dir="${HOSTINGER_SERVER_DIR:-public_html}"
+          target_dir="${HOSTINGER_SERVER_DIR:-}"
+          domain="${HOSTINGER_DOMAIN:-}"
+          # Hostinger addon domains typically live under domains/<domain>/public_html.
+          # Auto-correct blank or generic public_html to the domain path for this project.
+          if [ -z "$target_dir" ] || [ "$target_dir" = "public_html" ]; then
+            if [ -n "$domain" ]; then
+              target_dir="domains/${domain}/public_html"
+            else
+              target_dir="public_html"
+            fi
+          fi
           remote_prefix=""
           if [ "$target_dir" != "." ]; then
             remote_prefix="${target_dir%/}/"
@@ -147,6 +159,7 @@ jobs:
           set ftp:ssl-allow no
           set ftp:passive-mode yes
           $([ "$target_dir" != "." ] && echo "mkdir -p ${target_dir}")
-          mirror --reverse --verbose --parallel=2 dist/ ${target_dir}
+          $([ "$target_dir" != "." ] && echo "cd ${target_dir}")
+          mirror --reverse --verbose --parallel=2 dist/ .
           bye
           EOF
