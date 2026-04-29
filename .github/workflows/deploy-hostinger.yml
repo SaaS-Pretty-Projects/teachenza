@@ -82,8 +82,6 @@ jobs:
           fi
           target_dir="${HOSTINGER_SERVER_DIR:-}"
           domain="${HOSTINGER_DOMAIN:-}"
-          # Respect explicit HOSTINGER_SERVER_DIR from secrets.
-          # Only fall back when no directory was provided.
           if [ -z "$target_dir" ]; then
             if [ -n "$domain" ]; then
               target_dir="domains/${domain}/public_html"
@@ -91,10 +89,7 @@ jobs:
               target_dir="public_html"
             fi
           fi
-          remote_prefix=""
-          if [ "$target_dir" != "." ]; then
-            remote_prefix="${target_dir%/}/"
-          fi
+
           raw_host="${HOSTINGER_HOST}"
           host="$(printf '%s' "$raw_host" | tr -d '[:space:]')"
           host="${host#sftp://}"
@@ -115,7 +110,7 @@ jobs:
             echo "::notice::Normalized HOSTINGER_HOST from a pasted URL or user@host value. Saving only the bare hostname or IP is recommended."
           fi
 
-          echo "Deploying dist/ via ${protocol} on port ${port} into ${target_dir}"
+          echo "Deploying dist/ via ${protocol} on port ${port} (initial target: ${target_dir})"
 
           if [ "$protocol" != "ftp" ]; then
             echo "::error::This workflow currently supports FTP mode only. Set HOSTINGER_PROTOCOL=ftp."
@@ -123,62 +118,95 @@ jobs:
           fi
 
           ftp_base="ftp://${host}:${port}"
-          if [ "$target_dir" = "." ]; then
-            target_dir=""
-            remote_prefix=""
+
+          declare -a candidate_dirs=()
+          add_candidate() {
+            local candidate="$1"
+            [ -z "$candidate" ] && return
+            for existing in "${candidate_dirs[@]}"; do
+              [ "$existing" = "$candidate" ] && return
+            done
+            candidate_dirs+=("$candidate")
+          }
+
+          add_candidate "$target_dir"
+          add_candidate "."
+          add_candidate "public_html"
+          if [ -n "$domain" ]; then
+            add_candidate "domains/${domain}/public_html"
           fi
 
-          # Some Hostinger FTP users are chrooted directly into webroot.
-          # If explicit target_dir cannot be entered, fall back to root.
-          if [ -n "$target_dir" ]; then
-            if ! curl --silent --show-error --fail --user "$HOSTINGER_USERNAME:$HOSTINGER_PASSWORD" \
-              --quote "CWD ${target_dir}" "$ftp_base" >/dev/null 2>&1; then
-              echo "::warning::Cannot access '${target_dir}' for this FTP user. Falling back to root (.)."
-              target_dir=""
-              remote_prefix=""
+          upload_dist_to_dir() {
+            local candidate="$1"
+            local remote_prefix=""
+
+            if [ "$candidate" != "." ]; then
+              if ! curl --silent --show-error --fail --user "$HOSTINGER_USERNAME:$HOSTINGER_PASSWORD" \
+                --quote "CWD ${candidate}" "$ftp_base" >/dev/null 2>&1; then
+                echo "::warning::Cannot access '${candidate}' for this FTP user."
+                return 1
+              fi
+              remote_prefix="${candidate%/}/"
             fi
-          fi
 
-          echo "Deploying build into target webroot: ${target_dir:-.}"
-
-          # Remove known Hostinger placeholder entry files if present.
-          curl --silent --show-error --fail --user "$HOSTINGER_USERNAME:$HOSTINGER_PASSWORD" \
-            --quote "DELE ${remote_prefix}index.php" "$ftp_base" >/dev/null 2>&1 || true
-          curl --silent --show-error --fail --user "$HOSTINGER_USERNAME:$HOSTINGER_PASSWORD" \
-            --quote "DELE ${remote_prefix}default.php" "$ftp_base" >/dev/null 2>&1 || true
-
-          # Upload all files in dist/ preserving relative paths.
-          while IFS= read -r rel; do
-            remote_path="${remote_prefix}${rel}"
-            remote_dir="$(dirname "$remote_path")"
-            local_file="dist/${rel}"
-
-            if [ "$remote_dir" != "." ]; then
-              IFS='/' read -r -a parts <<< "$remote_dir"
-              acc=""
-              for part in "${parts[@]}"; do
-                [ -z "$part" ] && continue
-                if [ -z "$acc" ]; then
-                  acc="$part"
-                else
-                  acc="$acc/$part"
-                fi
-                curl --silent --show-error --fail --user "$HOSTINGER_USERNAME:$HOSTINGER_PASSWORD" \
-                  --quote "MKD ${acc}" "$ftp_base" >/dev/null 2>&1 || true
-              done
-            fi
+            echo "Deploying build into target webroot candidate: ${candidate}"
 
             curl --silent --show-error --fail --user "$HOSTINGER_USERNAME:$HOSTINGER_PASSWORD" \
-              --upload-file "$local_file" "$ftp_base/${remote_path}"
-          done < <(cd dist && find . -type f -print | sed 's#^./##')
+              --quote "DELE ${remote_prefix}index.php" "$ftp_base" >/dev/null 2>&1 || true
+            curl --silent --show-error --fail --user "$HOSTINGER_USERNAME:$HOSTINGER_PASSWORD" \
+              --quote "DELE ${remote_prefix}default.php" "$ftp_base" >/dev/null 2>&1 || true
 
-          if [ -n "$domain" ]; then
-            echo "Verifying live domain response from https://${domain}/deploy-check.txt"
-            live_sha="$(curl -fsSL "https://${domain}/deploy-check.txt" || true)"
-            if [ "$live_sha" != "$GITHUB_SHA" ]; then
-              echo "::error::Post-deploy verification failed. Uploaded files did not reach the live document root for ${domain}."
-              echo "::error::Expected SHA: ${GITHUB_SHA}"
-              echo "::error::Live SHA: ${live_sha:-<empty>}"
-              exit 1
+            while IFS= read -r rel; do
+              remote_path="${remote_prefix}${rel}"
+              remote_dir="$(dirname "$remote_path")"
+              local_file="dist/${rel}"
+
+              if [ "$remote_dir" != "." ]; then
+                IFS='/' read -r -a parts <<< "$remote_dir"
+                acc=""
+                for part in "${parts[@]}"; do
+                  [ -z "$part" ] && continue
+                  if [ -z "$acc" ]; then
+                    acc="$part"
+                  else
+                    acc="$acc/$part"
+                  fi
+                  curl --silent --show-error --fail --user "$HOSTINGER_USERNAME:$HOSTINGER_PASSWORD" \
+                    --quote "MKD ${acc}" "$ftp_base" >/dev/null 2>&1 || true
+                done
+              fi
+
+              curl --silent --show-error --fail --user "$HOSTINGER_USERNAME:$HOSTINGER_PASSWORD" \
+                --upload-file "$local_file" "$ftp_base/${remote_path}"
+            done < <(cd dist && find . -type f -print | sed 's#^./##')
+
+            return 0
+          }
+
+          deploy_ok=0
+          for candidate in "${candidate_dirs[@]}"; do
+            if ! upload_dist_to_dir "$candidate"; then
+              continue
             fi
+
+            if [ -n "$domain" ]; then
+              echo "Verifying live domain response from https://${domain}/deploy-check.txt"
+              live_sha="$(curl -fsSL "https://${domain}/deploy-check.txt" || true)"
+              if [ "$live_sha" = "$GITHUB_SHA" ]; then
+                echo "Live verification passed via candidate: ${candidate}"
+                deploy_ok=1
+                break
+              fi
+              echo "::warning::Candidate '${candidate}' uploaded but live SHA did not match yet."
+            else
+              deploy_ok=1
+              break
+            fi
+          done
+
+          if [ "$deploy_ok" -ne 1 ]; then
+            echo "::error::Post-deploy verification failed. Uploaded files did not reach the live document root for ${domain:-the configured domain}."
+            echo "::error::Expected SHA: ${GITHUB_SHA}"
+            echo "::error::Live SHA: ${live_sha:-<empty>}"
+            exit 1
           fi
