@@ -160,6 +160,11 @@ jobs:
           set ftp:passive-mode yes
           $([ "$target_dir" != "." ] && echo "mkdir -p ${target_dir}")
           $([ "$target_dir" != "." ] && echo "cd ${target_dir}")
+          # Remove Hostinger placeholder entry files so SPA index.html is served.
+          set cmd:fail-exit no
+          rm index.php
+          rm default.php
+          set cmd:fail-exit yes
           mirror --reverse --verbose --parallel=2 dist/ .
           bye
           EOF
