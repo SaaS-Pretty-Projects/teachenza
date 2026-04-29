@@ -50,6 +50,16 @@
 }
 
 @layer components {
+  /* Prevent browser autofill from overriding dark auth inputs */
+  .auth-input:-webkit-autofill,
+  .auth-input:-webkit-autofill:hover,
+  .auth-input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 100px #18181b inset !important;
+    -webkit-text-fill-color: rgba(255, 255, 255, 0.9) !important;
+    caret-color: white;
+    transition: background-color 5000s ease-in-out 0s;
+  }
+
   .liquid-glass {
     background: var(--glass-bg);
     background-blend-mode: luminosity;

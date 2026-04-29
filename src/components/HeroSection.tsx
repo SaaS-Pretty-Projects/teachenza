@@ -417,7 +417,7 @@ export default function HeroSection() {
           </div>
         ) : null}
         {showEmailAuth && !user ? (
-          <div className="auth-panel mt-6 w-full max-w-md rounded-3xl border border-white/15 bg-[rgba(3,3,3,0.82)] p-5 text-left text-white shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-md">
+          <div className="auth-panel mt-6 w-full max-w-md rounded-3xl border border-white/15 bg-zinc-950/90 p-5 text-left text-white shadow-[0_24px_80px_#000000AA] backdrop-blur-md">
             <div className="mb-4 flex items-center justify-between gap-3">
               <p className="text-sm font-semibold tracking-wide text-white">
                 {emailMode === 'signup' ? 'Create your account' : 'Log in with email'}
