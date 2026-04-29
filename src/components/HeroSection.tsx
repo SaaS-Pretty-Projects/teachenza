@@ -337,7 +337,7 @@ export default function HeroSection() {
       </nav>
 
       {/* Hero Content */}
-      <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 text-center transform -translate-y-[10%]">
+      <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 pt-8 pb-10 text-center md:pt-12 md:pb-16">
         <h1 className="text-5xl md:text-7xl lg:text-9xl text-white tracking-tight font-serif mb-8 leading-[1.1]">
           Master one subject.<br className="hidden md:block" />
           Deep, focused <em className="italic font-serif text-white/90">learning</em>.
