@@ -1,7 +1,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {ArrowRight, Globe} from 'lucide-react';
 import {auth, db} from '../lib/firebase';
-import {GoogleAuthProvider, signInWithPopup, signOut} from 'firebase/auth';
+import {getRedirectResult, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut} from 'firebase/auth';
 import {doc, getDoc, setDoc, serverTimestamp} from 'firebase/firestore';
 import {useNavigate} from 'react-router-dom';
 import {defaultMemberProfile} from '../lib/learningData';
@@ -9,34 +9,101 @@ import {defaultMemberProfile} from '../lib/learningData';
 export default function HeroSection() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [user, setUser] = useState(auth.currentUser);
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginMessage, setLoginMessage] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
     return auth.onAuthStateChanged(setUser);
   }, []);
 
-  const handleLogin = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      
-      // Upsert User Profile logic
-      const userRef = doc(db, 'users', result.user.uid);
-      const userSnap = await getDoc(userRef);
-      if (!userSnap.exists()) {
-        await setDoc(userRef, {
-          email: result.user.email,
-          displayName: result.user.displayName || '',
-          focusGoal: defaultMemberProfile.focusGoal,
-          experienceLevel: defaultMemberProfile.experienceLevel,
-          weeklyCommitment: defaultMemberProfile.weeklyCommitment,
-          preferredSession: defaultMemberProfile.preferredSession,
-          createdAt: serverTimestamp(),
-        });
+  const upsertUserProfile = async (signedInUser: NonNullable<typeof auth.currentUser>) => {
+    const userRef = doc(db, 'users', signedInUser.uid);
+    const userSnap = await getDoc(userRef);
+    if (!userSnap.exists()) {
+      await setDoc(userRef, {
+        email: signedInUser.email,
+        displayName: signedInUser.displayName || '',
+        focusGoal: defaultMemberProfile.focusGoal,
+        experienceLevel: defaultMemberProfile.experienceLevel,
+        weeklyCommitment: defaultMemberProfile.weeklyCommitment,
+        preferredSession: defaultMemberProfile.preferredSession,
+        createdAt: serverTimestamp(),
+      });
+    }
+  };
+
+  const provider = () => {
+    const googleProvider = new GoogleAuthProvider();
+    googleProvider.setCustomParameters({prompt: 'select_account'});
+    return googleProvider;
+  };
+
+  const resumeAfterLogin = () => {
+    const nextPath = localStorage.getItem('tutivex:postLoginPath') || '/dashboard';
+    localStorage.removeItem('tutivex:postLoginPath');
+    navigate(nextPath);
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function completeRedirectLogin() {
+      try {
+        const result = await getRedirectResult(auth);
+        if (cancelled) return;
+
+        if (result?.user) {
+          await upsertUserProfile(result.user);
+          if (!cancelled) resumeAfterLogin();
+        } else if (auth.currentUser && localStorage.getItem('tutivex:postLoginPath')) {
+          await upsertUserProfile(auth.currentUser);
+          if (!cancelled) resumeAfterLogin();
+        }
+      } catch (error) {
+        console.error('Redirect login failed', error);
+        if (!cancelled) {
+          setLoginMessage('Google redirect sign-in could not finish. Check that this domain is authorized in Firebase.');
+        }
       }
-      navigate('/dashboard');
+    }
+
+    completeRedirectLogin();
+    return () => { cancelled = true; };
+  }, []);
+
+  const startRedirectLogin = async () => {
+    localStorage.setItem('tutivex:postLoginPath', '/dashboard');
+    setLoginMessage('Opening Google sign-in in this browser...');
+    await signInWithRedirect(auth, provider());
+  };
+
+  const handleLogin = async () => {
+    setLoginBusy(true);
+    setLoginMessage('');
+    try {
+      const result = await signInWithPopup(auth, provider());
+      await upsertUserProfile(result.user);
+      resumeAfterLogin();
     } catch (error) {
-      console.error("Login failed", error);
+      console.error('Login failed', error);
+      const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+      if (code === 'auth/unauthorized-domain') {
+        setLoginMessage('This domain is not authorized for Firebase Google sign-in yet.');
+        return;
+      }
+      if (
+        code === 'auth/popup-blocked' ||
+        code === 'auth/popup-closed-by-user' ||
+        code === 'auth/cancelled-popup-request' ||
+        code === 'auth/operation-not-supported-in-this-environment'
+      ) {
+        await startRedirectLogin();
+        return;
+      }
+      setLoginMessage('Google sign-in failed. Try the redirect sign-in option.');
+    } finally {
+      setLoginBusy(false);
     }
   };
 
@@ -149,8 +216,22 @@ export default function HeroSection() {
               </>
             ) : (
               <>
-                <button onClick={handleLogin} className="text-white text-sm font-medium hover:text-white/80 transition-colors">Sign Up</button>
-                <button onClick={handleLogin} className="liquid-glass rounded-full px-6 py-2 text-white text-sm font-medium transition-all hover:bg-white/10">Login</button>
+                <button
+                  type="button"
+                  onClick={handleLogin}
+                  disabled={loginBusy}
+                  className="text-white text-sm font-medium hover:text-white/80 transition-colors disabled:opacity-50"
+                >
+                  Sign Up
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLogin}
+                  disabled={loginBusy}
+                  className="liquid-glass rounded-full px-6 py-2 text-white text-sm font-medium transition-all hover:bg-white/10 disabled:opacity-50"
+                >
+                  {loginBusy ? 'Opening...' : 'Login'}
+                </button>
               </>
             )}
           </div>
@@ -171,9 +252,10 @@ export default function HeroSection() {
           <button
             type="button"
             onClick={() => (user ? navigate('/dashboard') : handleLogin())}
+            disabled={loginBusy}
             className="bg-white text-black rounded-full px-6 py-3 text-sm font-medium hover:bg-gray-200 transition-colors inline-flex items-center gap-2"
           >
-            {user ? 'Open Dashboard' : 'Start Learning'}
+            {user ? 'Open Dashboard' : loginBusy ? 'Opening sign-in...' : 'Start Learning'}
             <ArrowRight className="w-4 h-4" />
           </button>
           <a
@@ -183,6 +265,20 @@ export default function HeroSection() {
             Explore Curriculum
           </a>
         </div>
+        {loginMessage ? (
+          <div className="mt-5 flex flex-col items-center gap-3">
+            <p className="max-w-md text-sm text-white/60">{loginMessage}</p>
+            {!user ? (
+              <button
+                type="button"
+                onClick={startRedirectLogin}
+                className="liquid-glass rounded-full px-5 py-2 text-xs font-semibold text-white hover:bg-white/10 transition-colors"
+              >
+                Continue with redirect sign-in
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </main>
     </section>
   );
