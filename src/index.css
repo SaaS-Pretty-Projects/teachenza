@@ -163,4 +163,17 @@
   .theme-light .theme-force-dark .liquid-glass {
     background: rgba(255, 255, 255, 0.01) !important;
   }
+
+  .theme-light .theme-force-dark input,
+  .theme-light .theme-force-dark textarea,
+  .theme-light .theme-force-dark select {
+    background-color: transparent !important;
+    border-color: transparent !important;
+    color: rgba(255, 255, 255, 0.92) !important;
+  }
+
+  .theme-light .theme-force-dark input::placeholder,
+  .theme-light .theme-force-dark textarea::placeholder {
+    color: rgba(255, 255, 255, 0.4) !important;
+  }
 }
