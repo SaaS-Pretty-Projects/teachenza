@@ -151,46 +151,29 @@ jobs:
             lftp -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" "${protocol}://${host}:${port}" < "$cleanup_script"
           fi
 
-          candidate_dirs=()
-          add_candidate_dir() {
-            local candidate="$1"
-            [ -z "$candidate" ] && return 0
-            for existing in "${candidate_dirs[@]:-}"; do
-              [ "$existing" = "$candidate" ] && return 0
-            done
-            candidate_dirs+=("$candidate")
-          }
+          echo "Deploying build into target webroot: ${target_dir}"
+          cd_commands=""
+          if [ "$target_dir" != "." ]; then
+            cd_commands="mkdir -p ${target_dir}; cd ${target_dir};"
+          fi
 
-          add_candidate_dir "$target_dir"
-          add_candidate_dir "public_html"
-          [ -n "$domain" ] && add_candidate_dir "domains/${domain}/public_html"
-          add_candidate_dir "."
-
-          for deploy_dir in "${candidate_dirs[@]}"; do
-            echo "Deploying build into candidate webroot: ${deploy_dir}"
-            cd_commands=""
-            if [ "$deploy_dir" != "." ]; then
-              cd_commands="mkdir -p ${deploy_dir}; cd ${deploy_dir};"
-            fi
-
-            lftp -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" "${protocol}://${host}:${port}" -e "
-              set cmd:fail-exit yes;
-              set net:max-retries 5;
-              set net:timeout 30;
-              set net:reconnect-interval-base 5;
-              set sftp:auto-confirm yes;
-              set ssl:verify-certificate no;
-              set ftp:ssl-allow no;
-              set ftp:passive-mode yes;
-              ${cd_commands}
-              set cmd:fail-exit no;
-              rm index.php;
-              rm default.php;
-              set cmd:fail-exit yes;
-              mirror --reverse --verbose --parallel=2 dist/ .;
-              bye
-            "
-          done
+          lftp -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" "${protocol}://${host}:${port}" -e "
+            set cmd:fail-exit yes;
+            set net:max-retries 5;
+            set net:timeout 30;
+            set net:reconnect-interval-base 5;
+            set sftp:auto-confirm yes;
+            set ssl:verify-certificate no;
+            set ftp:ssl-allow no;
+            set ftp:passive-mode yes;
+            ${cd_commands}
+            set cmd:fail-exit no;
+            rm index.php;
+            rm default.php;
+            set cmd:fail-exit yes;
+            mirror --reverse --verbose --parallel=2 dist/ .;
+            bye
+          "
 
           if [ -n "$domain" ]; then
             echo "Verifying live domain response from https://${domain}/.deploy-check"
