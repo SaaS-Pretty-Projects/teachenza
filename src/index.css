@@ -89,6 +89,14 @@
 }
 
 @layer utilities {
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
   .theme-light .bg-black,
   .theme-light .bg-black\/60,
   .theme-light .bg-black\/65,

@@ -39,14 +39,14 @@ export default function AppShell() {
       <div className="absolute inset-x-0 top-0 h-[20rem] bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.09),_transparent_60%)] pointer-events-none z-0" />
 
       {/* ── Compact single-row header ── */}
-      <header className="relative z-10 border-b border-white/8 backdrop-blur-md bg-black/70 shrink-0">
-        <div className="h-14 px-5 flex items-center gap-4">
+      <header className="relative z-10 border-b border-white/8 backdrop-blur-md bg-black/75 shrink-0 shadow-[0_1px_0_rgba(255,255,255,0.04)]">
+        <div className="h-12 px-4 flex items-center gap-3">
 
           {/* Logo */}
           <button
             type="button"
             onClick={() => navigate('/')}
-            className="flex items-center gap-2.5 shrink-0 mr-2"
+            className="flex items-center gap-2.5 shrink-0 mr-1"
           >
             <div className="w-8 h-8 rounded-xl liquid-glass border border-white/10 flex items-center justify-center">
               <Globe className="w-4 h-4 text-white" />
@@ -60,7 +60,7 @@ export default function AppShell() {
               to="/dashboard"
               className={({isActive}) =>
                 `rounded-full px-3 py-1.5 text-xs font-medium transition-colors border whitespace-nowrap inline-flex items-center gap-1.5 ${
-                  isActive ? 'bg-white text-black border-white' : 'text-white/65 border-white/10 hover:text-white hover:border-white/25'
+                  isActive ? 'bg-white/12 text-white border-white/20' : 'text-white/62 border-white/10 hover:bg-white/[0.04] hover:text-white hover:border-white/20'
                 }`
               }
             >
@@ -71,7 +71,7 @@ export default function AppShell() {
               to="/profile"
               className={({isActive}) =>
                 `rounded-full px-3 py-1.5 text-xs font-medium transition-colors border whitespace-nowrap inline-flex items-center gap-1.5 ${
-                  isActive ? 'bg-white text-black border-white' : 'text-white/65 border-white/10 hover:text-white hover:border-white/25'
+                  isActive ? 'bg-white/12 text-white border-white/20' : 'text-white/62 border-white/10 hover:bg-white/[0.04] hover:text-white hover:border-white/20'
                 }`
               }
             >
@@ -83,7 +83,7 @@ export default function AppShell() {
                 to="/tutor/earnings"
                 className={({isActive}) =>
                   `rounded-full px-3 py-1.5 text-xs font-medium transition-colors border whitespace-nowrap inline-flex items-center gap-1.5 ${
-                    isActive ? 'bg-white text-black border-white' : 'text-white/65 border-white/10 hover:text-white hover:border-white/25'
+                    isActive ? 'bg-white/12 text-white border-white/20' : 'text-white/62 border-white/10 hover:bg-white/[0.04] hover:text-white hover:border-white/20'
                   }`
                 }
               >
@@ -96,7 +96,7 @@ export default function AppShell() {
                 to="/admin/aging"
                 className={({isActive}) =>
                   `rounded-full px-3 py-1.5 text-xs font-medium transition-colors border whitespace-nowrap inline-flex items-center gap-1.5 ${
-                    isActive ? 'bg-white text-black border-white' : 'text-white/65 border-white/10 hover:text-white hover:border-white/25'
+                    isActive ? 'bg-white/12 text-white border-white/20' : 'text-white/62 border-white/10 hover:bg-white/[0.04] hover:text-white hover:border-white/20'
                   }`
                 }
               >
@@ -116,7 +116,7 @@ export default function AppShell() {
             {/* TOP UP — always visible, prominent */}
             <NavLink
               to="/credits"
-              className="inline-flex items-center gap-1.5 rounded-full bg-amber-400 text-black px-3.5 py-1.5 text-xs font-bold hover:bg-amber-300 transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 rounded-full border border-white/12 bg-white/[0.06] text-white/78 px-3 py-1.5 text-xs font-semibold hover:bg-white/[0.1] hover:text-white transition-colors whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" />
               Top Up
