@@ -37,7 +37,7 @@ jobs:
 
       - name: Prepare Hostinger SPA artifacts
         run: |
-          printf '%s\n' "$GITHUB_SHA" > dist/.deploy-check
+          printf '%s\n' "$GITHUB_SHA" > dist/deploy-check.txt
 
           cat > dist/.htaccess <<'EOF'
           <IfModule mod_rewrite.c>
@@ -82,9 +82,9 @@ jobs:
           fi
           target_dir="${HOSTINGER_SERVER_DIR:-}"
           domain="${HOSTINGER_DOMAIN:-}"
-          # Hostinger addon domains typically live under domains/<domain>/public_html.
-          # Auto-correct blank or generic public_html to the domain path for this project.
-          if [ -z "$target_dir" ] || [ "$target_dir" = "public_html" ]; then
+          # Respect explicit HOSTINGER_SERVER_DIR from secrets.
+          # Only fall back when no directory was provided.
+          if [ -z "$target_dir" ]; then
             if [ -n "$domain" ]; then
               target_dir="domains/${domain}/public_html"
             else
@@ -162,8 +162,8 @@ jobs:
           done < <(cd dist && find . -type f -print | sed 's#^./##')
 
           if [ -n "$domain" ]; then
-            echo "Verifying live domain response from https://${domain}/.deploy-check"
-            live_sha="$(curl -fsSL "https://${domain}/.deploy-check" || true)"
+            echo "Verifying live domain response from https://${domain}/deploy-check.txt"
+            live_sha="$(curl -fsSL "https://${domain}/deploy-check.txt" || true)"
             if [ "$live_sha" != "$GITHUB_SHA" ]; then
               echo "::error::Post-deploy verification failed. Uploaded files did not reach the live document root for ${domain}."
               echo "::error::Expected SHA: ${GITHUB_SHA}"
