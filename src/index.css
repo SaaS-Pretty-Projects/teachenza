@@ -147,7 +147,10 @@
   }
 
   .theme-light .theme-force-dark,
-  .theme-light .theme-force-dark .bg-black {
+  .theme-light .theme-force-dark .bg-black,
+  .theme-light .theme-force-dark .bg-black\/60,
+  .theme-light .theme-force-dark .bg-black\/65,
+  .theme-light .theme-force-dark .bg-black\/80 {
     background-color: #030303 !important;
   }
 
@@ -188,5 +191,21 @@
   .theme-light .theme-force-dark input::placeholder,
   .theme-light .theme-force-dark textarea::placeholder {
     color: rgba(255, 255, 255, 0.4) !important;
+  }
+
+  .theme-light .theme-force-dark .auth-panel {
+    background-color: rgba(3, 3, 3, 0.82) !important;
+    border-color: rgba(255, 255, 255, 0.16) !important;
+    color: rgba(255, 255, 255, 0.92) !important;
+  }
+
+  .theme-light .theme-force-dark .auth-input {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(255, 255, 255, 0.18) !important;
+    color: rgba(255, 255, 255, 0.94) !important;
+  }
+
+  .theme-light .theme-force-dark .auth-input::placeholder {
+    color: rgba(255, 255, 255, 0.42) !important;
   }
 }

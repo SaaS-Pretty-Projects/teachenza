@@ -417,7 +417,7 @@ export default function HeroSection() {
           </div>
         ) : null}
         {showEmailAuth && !user ? (
-          <div className="mt-6 w-full max-w-md rounded-3xl border border-white/15 bg-black/65 p-5 text-left backdrop-blur-md">
+          <div className="auth-panel mt-6 w-full max-w-md rounded-3xl border border-white/15 bg-[rgba(3,3,3,0.82)] p-5 text-left text-white shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-md">
             <div className="mb-4 flex items-center justify-between gap-3">
               <p className="text-sm font-semibold tracking-wide text-white">
                 {emailMode === 'signup' ? 'Create your account' : 'Log in with email'}
@@ -441,7 +441,7 @@ export default function HeroSection() {
                       setFullName(event.target.value);
                       resetEmailFeedback();
                     }}
-                    className="w-full rounded-xl border border-white/15 bg-black/45 px-3 py-2 text-sm text-white outline-none transition focus:border-white/40"
+                    className="auth-input w-full rounded-xl border border-white/15 bg-white/[0.08] px-3 py-2 text-sm text-white outline-none transition focus:border-white/40"
                     placeholder="Your full name"
                     autoComplete="name"
                   />
@@ -456,7 +456,7 @@ export default function HeroSection() {
                     setEmail(event.target.value);
                     resetEmailFeedback();
                   }}
-                  className="w-full rounded-xl border border-white/15 bg-black/45 px-3 py-2 text-sm text-white outline-none transition focus:border-white/40"
+                  className="auth-input w-full rounded-xl border border-white/15 bg-white/[0.08] px-3 py-2 text-sm text-white outline-none transition focus:border-white/40"
                   placeholder="you@example.com"
                   autoComplete="username"
                   required
@@ -473,7 +473,7 @@ export default function HeroSection() {
                       setPassword(event.target.value);
                       resetEmailFeedback();
                     }}
-                    className="w-full rounded-xl border border-white/15 bg-black/45 px-3 py-2 text-sm text-white outline-none transition focus:border-white/40"
+                    className="auth-input w-full rounded-xl border border-white/15 bg-white/[0.08] px-3 py-2 text-sm text-white outline-none transition focus:border-white/40"
                     placeholder="At least 6 characters"
                     autoComplete="new-password"
                     required
@@ -487,7 +487,7 @@ export default function HeroSection() {
                       setPassword(event.target.value);
                       resetEmailFeedback();
                     }}
-                    className="w-full rounded-xl border border-white/15 bg-black/45 px-3 py-2 text-sm text-white outline-none transition focus:border-white/40"
+                    className="auth-input w-full rounded-xl border border-white/15 bg-white/[0.08] px-3 py-2 text-sm text-white outline-none transition focus:border-white/40"
                     placeholder="At least 6 characters"
                     autoComplete="current-password"
                     required

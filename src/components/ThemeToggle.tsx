@@ -11,21 +11,22 @@ export default function ThemeToggle({compact = false}: {compact?: boolean}) {
   const {mode, cycleMode, resolvedTheme} = useTheme();
   const {label, Icon} = MODE_META[mode];
   const isLight = resolvedTheme === 'light';
+  const nextLabel = mode === 'light' ? 'Dark' : mode === 'dark' ? 'System' : 'Bright';
 
   return (
     <button
       type="button"
       onClick={cycleMode}
-      className={`rounded-full px-2.5 py-1.5 text-sm border transition-colors inline-flex items-center gap-2 ${
+      className={`rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors inline-flex items-center gap-2 shadow-sm ${
         isLight
-          ? 'border-black/12 text-[var(--text-secondary)] hover:text-[var(--text-strong)] hover:border-black/20'
-          : 'border-white/10 text-white/75 hover:text-white hover:border-white/25'
+          ? 'border-black/18 bg-[#111319] text-[#fff] hover:bg-black hover:text-[#fff]'
+          : 'border-white/18 bg-white/10 text-white hover:bg-white/16 hover:border-white/30'
       }`}
-      aria-label={`Theme: ${label}. Click to switch theme.`}
-      title={`Theme: ${label}`}
+      aria-label={`Theme: ${label}. Click to switch to ${nextLabel}.`}
+      title={`Theme: ${label}. Next: ${nextLabel}`}
     >
       <Icon className="w-4 h-4" />
-      {compact ? null : <span>{label}</span>}
+      {compact ? <span className="hidden sm:inline">{label}</span> : <span>{label}</span>}
     </button>
   );
 }
