@@ -149,7 +149,24 @@ jobs:
             lftp -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" "${protocol}://${host}:${port}" < "$cleanup_script"
           fi
 
-          lftp -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" "${protocol}://${host}:${port}" <<EOF
+          candidate_dirs=()
+          add_candidate_dir() {
+            local candidate="$1"
+            [ -z "$candidate" ] && return 0
+            for existing in "${candidate_dirs[@]:-}"; do
+              [ "$existing" = "$candidate" ] && return 0
+            done
+            candidate_dirs+=("$candidate")
+          }
+
+          add_candidate_dir "$target_dir"
+          add_candidate_dir "public_html"
+          [ -n "$domain" ] && add_candidate_dir "domains/${domain}/public_html"
+          add_candidate_dir "."
+
+          for deploy_dir in "${candidate_dirs[@]}"; do
+            echo "Deploying build into candidate webroot: ${deploy_dir}"
+            lftp -u "$HOSTINGER_USERNAME","$HOSTINGER_PASSWORD" "${protocol}://${host}:${port}" <<EOF
           set cmd:fail-exit yes
           set net:max-retries 5
           set net:timeout 30
@@ -158,8 +175,8 @@ jobs:
           set ssl:verify-certificate no
           set ftp:ssl-allow no
           set ftp:passive-mode yes
-          $([ "$target_dir" != "." ] && echo "mkdir -p ${target_dir}")
-          $([ "$target_dir" != "." ] && echo "cd ${target_dir}")
+          $([ "$deploy_dir" != "." ] && echo "mkdir -p ${deploy_dir}")
+          $([ "$deploy_dir" != "." ] && echo "cd ${deploy_dir}")
           # Remove Hostinger placeholder entry files so SPA index.html is served.
           set cmd:fail-exit no
           rm index.php
@@ -167,4 +184,5 @@ jobs:
           set cmd:fail-exit yes
           mirror --reverse --verbose --parallel=2 dist/ .
           bye
-          EOF
+EOF
+          done
